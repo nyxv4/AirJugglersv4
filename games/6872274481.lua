@@ -33246,9 +33246,9 @@ run(function()
 	end
 end)
 
-run(function()
+	run(function()
 	local CilentCrasher = vape.Categories.Blatant:CreateModule({
-remotes = setmetatable({}, {
+	remotes = setmetatable({}, {
     __index = function(self, key)
         local remote
         for _, instance in game:GetService("ReplicatedStorage"):GetDescendants() do
