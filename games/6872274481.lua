@@ -33247,7 +33247,7 @@ run(function()
 end)
 
 run(function()
-	local CilentCrasher
+	local CilentCrasher = vape.Categories.Blatant:CreateModule({
 remotes = setmetatable({}, {
     __index = function(self, key)
         local remote
