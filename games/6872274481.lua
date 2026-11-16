@@ -6694,10 +6694,6 @@ run(function()
 		return Spacing, Scale, Gap, math.max(Speed - SwordTiming.CooldownCorrection, 0), Stock
 	end
 
-	-- Killaura cadence: 0.279 quantizes to 67/240 = 0.279167s.
-	SwordTiming.Target = 0.279
-	SwordTiming.Budget = SwordTiming.Target
-
 	function SwordTiming.furyScale()
 		local now = tick()
 		if SwordTiming._furyAt and (now - SwordTiming._furyAt) < 0.25 then
@@ -6729,17 +6725,14 @@ run(function()
 	end
 
 	-- catvape's guard: never send sooner than the sword's own attack speed after ANY
-	-- registered attack (ours or the game's), or the server drops the packet. Capped by the
-	-- hit budget so the fire loop's early tick is not rejected and the cadence holds.
+	-- registered attack (ours or the game's), or the server drops the packet.
 	function SwordTiming.readyForHit(meta)
 		local last = bedwars.SwordController and bedwars.SwordController.lastAttack
 		if type(last) ~= 'number' or last <= 0 then return true end
 		local delta = workspace:GetServerTimeNow() - last
 		if delta < 0 or delta > 1 then return true end
-		local fury = SwordTiming.furyScale()
-		local speed = ((meta and meta.sword and meta.sword.attackSpeed) or 0.3) * fury
-		local limit = math.min(math.max(speed - SwordTiming.CooldownCorrection, 0), (SwordTiming.Budget or SwordTiming.Target) * fury)
-		return delta >= math.max(limit - 0.015, 0)
+		local speed = ((meta and meta.sword and meta.sword.attackSpeed) or 0.3) * SwordTiming.furyScale()
+		return delta >= math.max(speed - SwordTiming.CooldownCorrection, 0)
 	end
 
 	-- Mirrors the game's own swing: the weapon's third-person animation on the character
@@ -6842,8 +6835,7 @@ run(function()
 		local mode = (HitregMode and HitregMode.Value) or 'Stealth Mode'
 		local dynDelay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
 		local Speed = meta.sword and meta.sword.attackSpeed or 0.3
-		local fury = SwordTiming.furyScale()
-		local Budget = (SwordTiming.Budget or SwordTiming.HitFloor) * fury
+		local Budget = 0
 		local Hits = 35
 		
 		-- Advanced Mode: 48.55, Stealth Mode: 50, Dynamic: slider value
@@ -8853,8 +8845,6 @@ run(function()
 	local GrandUpdateRate
 	local GrandAngle
 	local GrandMaxTargets
-	local GrandHitregMode
-	local GrandDynamicDelay
 	local GrandMouse
 	local GrandGUI
 	local GrandBoxSwingColor
@@ -8888,17 +8878,6 @@ run(function()
 	local GrandAnimActive = false
 	local GRAND_SERVER_REACH = 14.399
 	local GRAND_HIT_PERIOD = 0.29583333333333334
-
-	local function getGrandAttackDelay(meta)
-		local mode = (GrandHitregMode and GrandHitregMode.Value) or 'Stealth Mode'
-		local dynDelay = (GrandDynamicDelay and GrandDynamicDelay.Value) or 100
-		local Speed = meta.sword and meta.sword.attackSpeed or 0.3
-		local effectiveDelay = 50
-		if mode == 'Dynamic' then
-			effectiveDelay = dynDelay
-		end
-		return quantize240(SwordTiming.Calculate(Speed, 'Dynamic', effectiveDelay, 0, 35))
-	end
 
 	function GrandFire.projectileInHand()
 		local live = liveHandTool()
@@ -9140,7 +9119,7 @@ run(function()
 
 				local sword, meta = grandGetAttackData()
 				if sword and meta then
-					GrandFire.Period = getGrandAttackDelay(meta)
+					GrandFire.Period = getAttackDelay(meta)
 				end
 
 				local heartbeatDt = 1 / 60
@@ -9455,27 +9434,6 @@ run(function()
 		Min = 1,
 		Max = 5,
 		Default = 5
-	})
-	GrandHitregMode = GrandKillaura:CreateDropdown({
-		Name = 'Hitreg Mode',
-		List = {'Stealth Mode', 'Dynamic'},
-		Default = 'Stealth Mode',
-		Tooltip = 'GrandKillaura hit spacing mode',
-		Function = function(val)
-			if GrandDynamicDelay and GrandDynamicDelay.Object then
-				GrandDynamicDelay.Object.Visible = (val == 'Dynamic')
-			end
-		end
-	})
-	GrandDynamicDelay = GrandKillaura:CreateSlider({
-		Name = 'Dynamic Delay',
-		Min = 1,
-		Max = 100,
-		Default = 100,
-		Suffix = '%',
-		Darker = true,
-		Visible = false,
-		Tooltip = 'GrandKillaura hit spacing when Dynamic Hitreg Mode is selected'
 	})
 	GrandMouse = GrandKillaura:CreateToggle({Name = 'Require mouse down'})
 	GrandSwing = GrandKillaura:CreateToggle({Name = 'No Swing'})
