@@ -6638,7 +6638,7 @@ run(function()
 	local lastAnimTime = 0 -- Track when last animation was played to prevent doubling
 	local anims, AnimDelay, AnimTween, armC0 = vape.Libraries.auraanims, tick()
 	local FROZEN_THRESHOLD = 10
-	local HIT_PERIOD = 0.296 -- Killaura hit period fallback matching SafeSpacing
+	local HIT_PERIOD = 0.28333333333333333 -- 17 frames, matches the Stealth cadence
 	local SERVER_FLOOR = 0.292
 	local SERVER_REACH = 14.399
 	local NORMAL_SWORD_SWING_SPEED = 0.35 -- Standard in-game sword swing speed, NEVER changes
@@ -6657,10 +6657,10 @@ run(function()
 
 	-- DYNAMIC SWORD TIMING & HITSPACING SYSTEM
 	local SwordTiming = {
-		SafeSpacing  = 0.295, -- Stealth Mode delay
-		HighSpacing  = 0.2855, -- spacing in each hits for Advanced Mode only
-		HitFloor     = 0.292, --  he server's minimum allowed time between hits. Going below this will cause ghost hits.
-		GapFloor     = 0.2945, -- minimum gap between con hits
+		SafeSpacing  = 0.2833, -- 17 heartbeat frames = 68/240, ~35 hits per 10s
+		HighSpacing  = 0.2825, -- spacing in each hits for Advanced Mode only
+		HitFloor     = 0.282, -- server's minimum allowed time between hits. Going below this will cause ghost hits.
+		GapFloor     = 0.282, -- minimum gap between con hits
 		ArrivalFloor = 0.274, -- how early it can arrive b4 ghosting 
 		CooldownCorrection = (0.017999999225139618 / 10) + 0.013412,
 	}
@@ -6735,23 +6735,70 @@ run(function()
 		local mode = (HitregMode and HitregMode.Value) or 'Stealth Mode'
 		local dynDelay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
 		local Speed = meta.sword and meta.sword.attackSpeed or 0.3
-		local Budget = 0
-		local Hits = 35
-		
-		-- Advanced Mode: 48.55, Stealth Mode: 50, Dynamic: slider value
-		local effectiveDelay
-		if mode == 'Dynamic' then
-			effectiveDelay = dynDelay
-		elseif mode == 'Advanced Mode' then
-			effectiveDelay = 49.55
-		else
-			effectiveDelay = 50
-		end
-		
+
+		-- Stealth and Advanced sit on the safe spacing; Dynamic scales it by the slider but
+		-- never below the floor the server keeps up with.
+		local highMode = (mode == 'Dynamic') and 'Dynamic' or 'Stealth Mode'
+		local delay = (mode == 'Dynamic') and dynDelay or 100
+
 		-- This decouples hit registration from animation speed
-		local Spacing = SwordTiming.Calculate(Speed, 'Dynamic', effectiveDelay, Budget, Hits)
+		local Spacing = SwordTiming.Calculate(Speed, highMode, delay, 0, 35)
+		if Speed == 0.3 then Spacing = math.max(Spacing, SwordTiming.HitFloor) end
 		return quantize240(Spacing)
 	end
+
+	-- The server discards a hit sent inside the sword's own swing window, so hold the next
+	-- send to the cadence floor after any registered attack (ours or the game's own swing).
+	function SwordTiming.cooldownReady()
+		local last = bedwars.SwordController and bedwars.SwordController.lastAttack
+		if type(last) ~= 'number' or last <= 0 then return true end
+		local delta = workspace:GetServerTimeNow() - last
+		if delta < 0 or delta > 1 then return true end
+		return delta >= (SwordTiming.SafeSpacing - 0.005)
+	end
+
+	-- 17-frame sends give ~35 hits per 10s. When two sends in a row land nothing the server
+	-- is rejecting them, so run one frame slower and probe the fast cadence again later.
+	SwordTiming.Fast = true
+	SwordTiming.MissStreak = 0
+	SwordTiming.ProbeAt = 0
+	SwordTiming.SentAt = 0
+	SwordTiming.ConfirmAt = 0
+
+	function SwordTiming.resolvePeriod(meta)
+		local base = getAttackDelay(meta)
+		if SwordTiming.Fast then return base end
+		return quantize240(base + 1 / 60)
+	end
+
+	function SwordTiming.noteSend()
+		SwordTiming.SentAt = tick()
+	end
+
+	function SwordTiming.checkConfirm()
+		local sentAt = SwordTiming.SentAt
+		if sentAt <= 0 or (tick() - sentAt) < 0.25 then return end
+		SwordTiming.SentAt = 0
+		if SwordTiming.ConfirmAt >= sentAt then
+			SwordTiming.MissStreak = 0
+		else
+			SwordTiming.MissStreak = SwordTiming.MissStreak + 1
+		end
+		if SwordTiming.Fast and SwordTiming.MissStreak >= 2 then
+			SwordTiming.Fast = false
+			SwordTiming.MissStreak = 0
+			SwordTiming.ProbeAt = tick() + 8
+		elseif not SwordTiming.Fast and tick() >= SwordTiming.ProbeAt then
+			SwordTiming.Fast = true
+			SwordTiming.MissStreak = 0
+		end
+	end
+
+	vape:Clean(vapeEvents.EntityDamageEvent.Event:Connect(function(damageTable)
+		if damageTable.fromEntity == lplr.Character and damageTable.damageType == 0 then
+			SwordTiming.ConfirmAt = tick()
+		end
+	end))
 
 	local function markAttackResult(success)
 		-- No-op: kept for compatibility
@@ -8036,13 +8083,15 @@ run(function()
 	end
 
 	local function attemptFire()
-		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
-		
-		-- Add small delay after FastHits to prevent ghosting sword hits
-		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.075 then
+		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.15 then return false end
+
+		-- Let a projectile swap finish before swinging: a sword hit cancels the bolt.
+		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.12 then
 			return false
 		end
-		
+
+		if not SwordTiming.cooldownReady() then return false end
+
 		local v = resolveTarget()
 		if not v then return false end
 
@@ -8094,6 +8143,7 @@ run(function()
 			markAttackResult(false)
 			return false
 		end
+		SwordTiming.noteSend()
 
 		local srvNow = workspace:GetServerTimeNow()
 
@@ -8129,6 +8179,9 @@ run(function()
 		kaNextFire = 0
 		kaLastSrv = workspace:GetServerTimeNow() - kaPeriod
 		kaLastSend = 0
+		SwordTiming.Fast = true
+		SwordTiming.MissStreak = 0
+		SwordTiming.SentAt = 0
 
 		-- Diagnostic only: throttle repeated attemptFire errors without changing attack logic.
 		local lastAttemptFireError = 0
@@ -8137,10 +8190,12 @@ run(function()
 			while Killaura and Killaura.Enabled do
 				runService.Heartbeat:Wait()
 
+				SwordTiming.checkConfirm()
+
 				local updateOk, updateErr = pcall(function()
 					local sword, meta = getAttackData()
 					if sword and meta then
-						kaPeriod = getAttackDelay(meta)
+						kaPeriod = SwordTiming.resolvePeriod(meta)
 					else
 						kaPeriod = HIT_PERIOD
 					end
@@ -8845,37 +8900,7 @@ run(function()
 	local GrandArmC0
 	local GrandAnimActive = false
 	local GRAND_SERVER_REACH = 14.399
-	local GRAND_HIT_PERIOD = 0.29583333333333334
-
-	function SwordTiming.furyScale()
-		local now = tick()
-		if SwordTiming._furyAt and (now - SwordTiming._furyAt) < 0.25 then
-			return SwordTiming._fury or 1
-		end
-		SwordTiming._furyAt = now
-		local scale = 1
-		local char = lplr.Character
-		local attr = char and char:GetAttribute('StatusEffect_fury_potion')
-		local active = attr ~= nil and attr ~= false and attr ~= 0
-		if not active then
-			local ok, res = pcall(function()
-				return bedwars.StatusEffectUtil:isActive(char, 'fury_potion')
-			end)
-			active = ok and res == true
-		end
-		if active then
-			local okM, mult = pcall(function()
-				return bedwars.BlackMarketeerBalance.FURY_POTION_ATTACK_SPEED_MULTIPLIER
-			end)
-			if okM and type(mult) == 'number' and mult > 1 and mult < 2 then
-				scale = 1 - (mult - 1)
-			else
-				scale = 0.8
-			end
-		end
-		SwordTiming._fury = scale
-		return scale
-	end
+	local GRAND_HIT_PERIOD = 0.28333333333333333
 
 	function GrandFire.projectileInHand()
 		local live = liveHandTool()
@@ -9061,8 +9086,10 @@ run(function()
 	end
 
 	function GrandFire.attempt()
-		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
-		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.075 then return false end
+		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.15 then return false end
+		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.12 then return false end
+		if tick() < GrandFire.ItemUntil then return false end
+		if not SwordTiming.cooldownReady() then return false end
 
 		local v = GrandFire.resolveTarget()
 		if not v then return false end
@@ -9085,6 +9112,7 @@ run(function()
 		if not grandFireAttack(grandWeaponInstance(sword), tchar, selfPos, targetPos) then
 			return false
 		end
+		SwordTiming.noteSend()
 
 		local srvNow = workspace:GetServerTimeNow()
 		GrandLastSrv = GrandLastSrv + GrandFire.Period
@@ -9104,6 +9132,9 @@ run(function()
 
 		GrandFire.Period = GRAND_HIT_PERIOD
 		GrandLastSrv = workspace:GetServerTimeNow() - GrandFire.Period
+		SwordTiming.Fast = true
+		SwordTiming.MissStreak = 0
+		SwordTiming.SentAt = 0
 		GrandFire.GraceTarget, GrandFire.GraceUntil = nil, 0
 		GrandFire.AcqTime, GrandFire.AcqRes = 0, nil
 		GrandFire.ItemUntil = 0
@@ -9115,9 +9146,11 @@ run(function()
 				runService.Heartbeat:Wait()
 				GrandFire.watchHand()
 
+				SwordTiming.checkConfirm()
+
 				local sword, meta = grandGetAttackData()
 				if sword and meta then
-					GrandFire.Period = getAttackDelay(meta)
+					GrandFire.Period = SwordTiming.resolvePeriod(meta)
 				end
 
 				local heartbeatDt = 1 / 60
@@ -9321,7 +9354,7 @@ run(function()
 									switchItem(sword.tool, 0)
 								end
 
-								if not GrandSwing.Enabled and not GrandLegit.Enabled and not GrandAnimActive and not liveProj and not sword.tool.Name:find('summoner_claw') and tick() >= GrandFire.ItemUntil and (tick() - GrandLastAnimTime) >= 0.35 * SwordTiming.furyScale() then
+								if not GrandSwing.Enabled and not GrandLegit.Enabled and not GrandAnimActive and not liveProj and not sword.tool.Name:find('summoner_claw') and tick() >= GrandFire.ItemUntil and (tick() - GrandLastAnimTime) >= 0.35 then
 									GrandLastAnimTime = tick()
 									if isOnTinker() then
 										playTinkerSwing()
