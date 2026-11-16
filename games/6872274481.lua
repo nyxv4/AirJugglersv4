@@ -6747,16 +6747,6 @@ run(function()
 		return quantize240(Spacing)
 	end
 
-	-- The server discards a hit sent inside the sword's own swing window, so hold the next
-	-- send to the cadence floor after any registered attack (ours or the game's own swing).
-	function SwordTiming.cooldownReady()
-		local last = bedwars.SwordController and bedwars.SwordController.lastAttack
-		if type(last) ~= 'number' or last <= 0 then return true end
-		local delta = workspace:GetServerTimeNow() - last
-		if delta < 0 or delta > 1 then return true end
-		return delta >= (SwordTiming.SafeSpacing - 0.005)
-	end
-
 	-- 17-frame sends give ~35 hits per 10s. When two sends in a row land nothing the server
 	-- is rejecting them, so run one frame slower and probe the fast cadence again later.
 	SwordTiming.Fast = true
@@ -8090,8 +8080,6 @@ run(function()
 			return false
 		end
 
-		if not SwordTiming.cooldownReady() then return false end
-
 		local v = resolveTarget()
 		if not v then return false end
 
@@ -9089,7 +9077,6 @@ run(function()
 		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.15 then return false end
 		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.12 then return false end
 		if tick() < GrandFire.ItemUntil then return false end
-		if not SwordTiming.cooldownReady() then return false end
 
 		local v = GrandFire.resolveTarget()
 		if not v then return false end
