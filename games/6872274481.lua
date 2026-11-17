@@ -11093,8 +11093,8 @@ run(function()
 										local Jitter = Variation > HitregTiming.Noise and math.clamp(Variation * Scale - math.max(Spacing - HitFloor * SpeedScale, 0) + Reserve, 0, HitregTiming.Margin) or 0
 										Margin = math.max(Minimum, Warmup, Latency, Jitter)
 									end
-									if Stock and HighHitreg.Enabled then
-										GapMin = math.max(GapMin + GhostDelay + Margin, AttackSpeed.Value)
+									if Stock then
+										GapMin = math.max(GapMin + (HighHitreg.Enabled and GhostDelay + Margin or 0), AttackSpeed.Value, GapFloor * SpeedScale)
 									end
 									local Band = (HighHitreg.Enabled and 10 / 36 or 10 / 34) * SpeedScale
 									local BandFloor = math.max(HighHitreg.Enabled and 10 / 36.5 or 10 / 35, CleanFloor) * SpeedScale
