@@ -10173,6 +10173,7 @@ run(function()
 		local HubKillaura, HubGrand = Killaura, GrandKillaura
 		local Killaura, Targets, Sort, FastHits, UseSophia, UseWhim, UseNazar, UseUmeko, UseLasso
 		local SwingRange, AttackRange, SwingTime, AttackSpeed, HighHitreg, Hitreg, BurstHits, BurstDelay
+		local HitregModeSelect, DynamicDelaySlider
 		local AngleSlider, AirHits, MaxTargets, Mouse, AFKCheck, Attackable, Swing, ContinueSwing, GUI
 		local BoxSwingColor, BoxAttackColor, BoxAttackTween, BoxAttackSpeed, BoxAttackSpeedEnd
 		local ParticleTexture, ParticleColor1, ParticleColor2, ParticleSize
@@ -10180,7 +10181,8 @@ run(function()
 		local Limit, LegitAura, Whitelist, Legit, FireRate
 		local Particles, Boxes = {}, {}
 		local HitRandom = Random.new()
-		local ContinueUntil, SwingGap = 0, 0.11
+		local ContinueUntil, SwingGap = 0, 0.35
+		local CurrentSpacing = 0.296
 		local LastEffect, LastAttack, OldSwing, SwingHook = 0, 0, nil, nil
 		local EffectSwing = 0
 		local Session
@@ -10238,11 +10240,15 @@ run(function()
 			[0.4] = 0.341,
 			[0.6] = 0.63
 		}
-		function SwordTiming.Calculate(Speed, Fury, High, Budget, Hits)
+		function SwordTiming.Calculate(Speed, Fury, HighMode, DynamicDelay, Budget, Hits)
+			local High = HighMode == 'Advanced Mode' or HighMode == 'Dynamic'
 			local Stock = Speed == 0.3
 			local Normal = High and SwordTiming.HighSpacing or SwordTiming.SafeSpacing
 			local Spacing = Stock and Normal or WeaponSpacing[Speed] or Speed + 0.03
 			if Hits and Hits ~= 35 then Spacing = math.max(Spacing, 10 / math.max(Hits - 1, 1)) end
+			if HighMode == 'Dynamic' and DynamicDelay then
+				Spacing = math.max(Spacing * (DynamicDelay / 100), Budget or 0)
+			end
 			Spacing = math.max(Spacing * Fury, Budget)
 			local Scale = Spacing / (Stock and Normal or SwordTiming.SafeSpacing)
 			local Gap = (Scale < 1 and SwordTiming.GapFloor or SwordTiming.HitFloor) * Scale
@@ -10528,9 +10534,11 @@ run(function()
 			local Meta = bedwars.ItemMeta[itemType]
 			local Source = Meta and Meta.projectileSource
 			local Id = (bedwars.IdUtil and bedwars.IdUtil.generateId and bedwars.IdUtil.generateId(8)) or tostring(math.random(1, 1e9))
+			local Draw = math.max(1, Source and Source.maxStrengthChargeSec or 0)
 			return {
 				shotId = Id,
-				drawDurationSec = math.max(1, Source and Source.maxStrengthChargeSec or 0)
+				drawDurationSec = Draw,
+				drawDurationSeconds = Draw
 			}
 		end
 
@@ -10800,7 +10808,7 @@ run(function()
 							return
 						end
 						LastEffect = tick()
-						SwingGap = math.max(SwingTime:GetRandomValue(), 0.11)
+						SwingGap = math.max(SwingTime:GetRandomValue(), CurrentSpacing, 0.35)
 						return PreviousSwing(self, SwordMeta, Charged, Config)
 					end
 					SwingHook = Hook
@@ -11070,7 +11078,10 @@ run(function()
 									local DisplayName = SwordMeta and SwordMeta.displayName or ''
 									local FuryMultiplier = bedwars.StatusEffectUtil:isActive(LocalPlayer.Character, 'fury_potion') and FuryScale or 1
 									local SwordSpeed = SwordMeta and SwordMeta.sword and SwordMeta.sword.attackSpeed or 0.3
-									local Spacing, SpeedScale, GapMin, AttackCooldown, Stock = SwordTiming.Calculate(SwordSpeed, FuryMultiplier, HighHitreg.Enabled, HitBudget)
+									local SelectedMode = (HitregModeSelect and HitregModeSelect.Value) or 'Stealth Mode'
+									local CalcMode = SelectedMode == 'Stealth Mode' and 'Dynamic' or SelectedMode
+									local DelayPercent = CalcMode == 'Dynamic' and (SelectedMode == 'Dynamic' and (DynamicDelaySlider and DynamicDelaySlider.Value or 100) or 50) or nil
+									local Spacing, SpeedScale, GapMin, AttackCooldown, Stock = SwordTiming.Calculate(SwordSpeed, FuryMultiplier, CalcMode, DelayPercent, HitBudget)
 									local Quantized = Stock and HighHitreg.Enabled and Hitreg.Value ~= 'Burst' and HitregTiming.AlignFrames and FrameTime > 1 / 30
 									local Variation = math.max(HitregTiming.Spread, tick() < HitregTiming.PeakUntil and HitregTiming.Peak or 0)
 									local Margin = 0
@@ -11094,6 +11105,7 @@ run(function()
 									if Stock and (math.ceil(Spacing / FrameTime) * FrameTime) > Band and (Frames * FrameTime) >= BandFloor then
 										Spacing = math.max((Frames * FrameTime) - (FrameTime * 0.5), GapFloor * SpeedScale)
 									end
+									CurrentSpacing = math.max(Spacing, GapMin)
 									local Precise = Stock and HighHitreg.Enabled and Hitreg.Value ~= 'Burst' and not Quantized and (math.ceil(Spacing / FrameTime) * FrameTime) > Band
 									local Reach = getReach(Sword.tool)
 									local RangeLimit = GetRangeLimit(Reach)
@@ -11146,7 +11158,7 @@ run(function()
 											store.CatKillauraTarget = v
 											getgenv().Attacking = true
 											if not Swing.Enabled and AnimDelay < tick() and not LegitAura.Enabled then
-												local SwingDelay = math.max(SwingTime:GetRandomValue(), 0.11)
+												local SwingDelay = math.max(SwingTime:GetRandomValue(), CurrentSpacing, 0.35)
 												AnimDelay = tick() + SwingDelay
 												Swung = true
 												local Mount = getTinkerMount()
@@ -11287,61 +11299,83 @@ run(function()
 														local ProjectileMeta = bedwars.ProjectileMeta[Projectile]
 														if tick() > (FireRates[Item.itemType] or 0) and ProjectileMeta and type(ProjectileMeta.launchVelocity) == 'number' then
 															local ProjectileSpeed, Gravity = ProjectileMeta.launchVelocity, ProjectileMeta.gravitationalAcceleration or 196.2
-															local OldHotbar, OldTool = store.inventory.hotbarSlot, store.hand.tool
+															local OldHotbar = store.inventory.hotbarSlot
 															local Hotbar = getHotbar(Item.tool)
-															if Hotbar then
-																switchItem(Item.tool, 0.1)
-																if Legit.Enabled then
+															FastHitPending = true
+															FireRates[Item.itemType] = tick() + (ItemMeta and ItemMeta.fireDelaySec or 0.1)
+															LastShot = tick() + FireRate.Value
+															task.spawn(function()
+																-- The server drops the shot unless its own hand already holds the tool,
+																-- so equip it and wait for the round trip before firing.
+																if Legit.Enabled and Hotbar then
 																	hotbarSwitch(Hotbar)
 																end
-															end
-															local RootPosition = v.RootPart.Position
-															local BowConst = bedwars.BowConstantsTable or {}
-															local ShootPosition = (CFrame.new(SendPosition, RootPosition) * CFrame.new(Vector3.new(-(BowConst.RelX or 0), -(BowConst.RelY or 0), -(BowConst.RelZ or 0)))).Position
-															local InAir = v.Humanoid and v.Humanoid.FloorMaterial == Enum.Material.Air or math.abs(v.RootPart.AssemblyLinearVelocity.Y) > 0.01
-															local AimPosition, _, TravelTime = Prediction.SolveTrajectory(ShootPosition, ProjectileSpeed, Gravity, RootPosition, v.RootPart.AssemblyLinearVelocity, workspace.Gravity, v.HipHeight, v.Humanoid and v.Humanoid.Jumping and 42.6 or nil, nil, InAir, v.RootPart.Position, v.RootPart, nil, true)
-															local Clear = false
-															if AimPosition and TravelTime then
-																local IgnoreList = {Camera, LocalPlayer.Character}
-																for _, Ent in Entity.List do
-																	if Ent.Character then
-																		table.insert(IgnoreList, Ent.Character)
+																local Ready = fhEquipAwait(Item.tool)
+																if Ready then
+																	local RootPosition = v.RootPart.Position
+																	local Character = LocalPlayer.Character
+																	local Handle = Item.tool:FindFirstChild('Handle')
+																	local BulletOrigin = Handle and Handle:FindFirstChild('BulletOrigin')
+																	local Hand = Character and (Character:FindFirstChild('RightHand') or Character:FindFirstChild('Right Arm'))
+																	local OriginPosition = (BulletOrigin and BulletOrigin:IsA('Attachment') and BulletOrigin.WorldPosition) or (Hand and Hand.Position) or (RootPosition + Vector3.new(0, 1.5, 0))
+																	local InAir = v.Humanoid and v.Humanoid.FloorMaterial == Enum.Material.Air or math.abs(v.RootPart.AssemblyLinearVelocity.Y) > 0.01
+																	local AimPosition, _, TravelTime = Prediction.SolveTrajectory(OriginPosition, ProjectileSpeed, Gravity, RootPosition, v.RootPart.AssemblyLinearVelocity, workspace.Gravity, v.HipHeight, v.Humanoid and v.Humanoid.Jumping and 42.6 or nil, nil, InAir, v.RootPart.Position, v.RootPart, nil, true)
+																	local Clear = false
+																	if AimPosition and TravelTime then
+																		local IgnoreList = {Camera, Character}
+																		for _, Ent in Entity.List do
+																			if Ent.Character then
+																				table.insert(IgnoreList, Ent.Character)
+																			end
+																		end
+																		ArcCheck.FilterDescendantsInstances = IgnoreList
+																		Clear = Prediction.IsTrajectoryClear(OriginPosition, AimPosition - OriginPosition, Gravity, TravelTime, ArcCheck)
+																	end
+																	if AimPosition and Clear then
+																		local ShootPosition = OriginPosition
+																		if ItemMeta and ItemMeta.arrow then
+																			local BowConst = bedwars.BowConstantsTable or {}
+																			ShootPosition = (CFrame.new(OriginPosition, AimPosition) * CFrame.new(Vector3.new(-(BowConst.RelX or 0), -(BowConst.RelY or 0), -(BowConst.RelZ or 0)))).Position
+																		end
+																		-- Keep the origin outside our own body so the server's own ray accepts it.
+																		local MyRoot = Character and Character.PrimaryPart
+																		if MyRoot then
+																			local Away = AimPosition - ShootPosition
+																			if Away.Magnitude > 0.01 then
+																				ShootPosition = ShootPosition + Away.Unit * 2
+																			end
+																			if ((ShootPosition - MyRoot.Position) * FlatScale).Magnitude < 0.5 then
+																				ShootPosition = ShootPosition + Vector3.new(0, 0.5, 0)
+																			end
+																		end
+																		local ShotDirection = CFrame.lookAt(ShootPosition, AimPosition).LookVector
+																		local ShotId = (bedwars.IdUtil and bedwars.IdUtil.generateId and bedwars.IdUtil.generateId(8)) or tostring(math.random(1, 1e9))
+																		watchProjectile(ShotId, ShootPosition, ShotDirection * ProjectileSpeed, Gravity, v, ProjectileMeta.lifetimeSec)
+																		Prediction.trackShot(v.RootPart)
+																		local Response = ProjectileRemote:Fire('CallServer',
+																			Item.tool,
+																			Ammo,
+																			Projectile,
+																			ShootPosition,
+																			SendPosition,
+																			ShotDirection * ProjectileSpeed,
+																			ShotId,
+																			getShotData(Item.itemType),
+																			workspace:GetServerTimeNow() - 0.05
+																		)
+																		if type(Response) == 'table' and Response.accepted then
+																			playLaunchSound(Item)
+																		end
 																	end
 																end
-																ArcCheck.FilterDescendantsInstances = IgnoreList
-																Clear = Prediction.IsTrajectoryClear(ShootPosition, AimPosition - ShootPosition, Gravity, TravelTime, ArcCheck)
-															end
-															if AimPosition and Clear then
-																local ShotDirection = CFrame.lookAt(ShootPosition, AimPosition).LookVector
-																local ShotId = (bedwars.IdUtil and bedwars.IdUtil.generateId and bedwars.IdUtil.generateId(8)) or tostring(math.random(1, 1e9))
-																FastHitPending = true
-																watchProjectile(ShotId, ShootPosition, ShotDirection * ProjectileSpeed, Gravity, v, ProjectileMeta.lifetimeSec)
-																Prediction.trackShot(v.RootPart)
-																FireRates[Item.itemType] = tick() + (ItemMeta and ItemMeta.fireDelaySec or 0.1)
-																LastShot = tick() + FireRate.Value
-																local SendPing = (store.ping and store.ping.total) or 0
-																task.spawn(function()
-																	local Response = ProjectileRemote:Fire('CallServer',
-																		Item.tool,
-																		Ammo,
-																		Projectile,
-																		ShootPosition,
-																		SendPosition,
-																		ShotDirection * ProjectileSpeed,
-																		ShotId,
-																		getShotData(Item.itemType),
-																		workspace:GetServerTimeNow() - (SendPing / 10)
-																	)
-																	FastHitPending = false
-																	if type(Response) == 'table' and Response.accepted then
-																		playLaunchSound(Item)
-																	end
-																end)
-															end
-															if OldTool then
-																switchItem(OldTool)
-															end
-															task.spawn(function()
+																pcall(fhRestoreSword)
+																local WaitUntil = tick() + 0.15
+																while tick() < WaitUntil do
+																	local HandTool = store.hand and store.hand.tool
+																	if not HandTool or not isProjectileTool(HandTool) then break end
+																	task.wait()
+																end
+																FastHitPending = false
 																if Legit.Enabled and OldHotbar ~= nil then
 																	hotbarSwitch(OldHotbar)
 																end
@@ -11389,7 +11423,7 @@ run(function()
 							if #Attacked > 0 then
 								ContinueUntil = tick() + (ContinueSwing:GetRandomValue() / 1000)
 							elseif Sword and SwordMeta and tick() < ContinueUntil and AnimDelay < tick() and not Swing.Enabled and not LegitAura.Enabled then
-								local SwingDelay = math.max(SwingTime:GetRandomValue(), 0.11)
+								local SwingDelay = math.max(SwingTime:GetRandomValue(), CurrentSpacing, 0.35)
 								AnimDelay = tick() + SwingDelay
 								local Mount = getTinkerMount()
 								if Mount then
@@ -11486,10 +11520,10 @@ run(function()
 			Name = 'Swing time',
 			Min = 0.11,
 			Max = 2,
-			DefaultMin = 0.11,
-			DefaultMax = 0.11,
+			DefaultMin = 0.35,
+			DefaultMax = 0.35,
 			Decimal = 100,
-			Tooltip = 'Seconds between swing animations, rolled fresh between the two values on every swing'
+			Tooltip = 'Seconds between swing animations, rolled fresh between the two values on every swing\nNever runs faster than 0.35s, which is the stock sword animation speed'
 		})
 		AttackSpeed = Killaura:CreateSlider({
 			Name = 'Attack speed',
@@ -11500,6 +11534,25 @@ run(function()
 			Suffix = function(Val)
 				return Val == 1 and 'second' or 'seconds'
 			end
+		})
+		HitregModeSelect = Killaura:CreateDropdown({
+			Name = 'Hitreg mode',
+			List = {'Stealth Mode', 'Advanced Mode', 'Dynamic'},
+			Function = function(Val)
+				if DynamicDelaySlider and DynamicDelaySlider.Object then
+					DynamicDelaySlider.Object.Visible = (Val == 'Dynamic')
+				end
+			end,
+			Tooltip = 'Stealth hugs the server hit window; Advanced and Dynamic tighten the spacing between hits'
+		})
+		DynamicDelaySlider = Killaura:CreateSlider({
+			Name = 'Dynamic delay',
+			Min = 1,
+			Max = 100,
+			Default = 100,
+			Suffix = '%',
+			Visible = false,
+			Tooltip = 'Hit spacing multiplier used when Hitreg mode is Dynamic'
 		})
 		HighHitreg = Killaura:CreateToggle({
 			Name = 'High hitreg',
