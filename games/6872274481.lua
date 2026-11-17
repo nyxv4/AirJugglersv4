@@ -6096,24 +6096,35 @@ run(function()
 				local ToolMeta = Tool and bedwars.ItemMeta and bedwars.ItemMeta[Tool.Name]
 				local SourceMeta = ToolMeta and ToolMeta.projectileSource
 				local BaseSpeed = tonumber(ProjectileMeta.launchVelocity) or 100
-				local MinScalar = tonumber(SourceMeta and SourceMeta.minStrengthScalar) or 1
-				local MaxDraw = tonumber(SourceMeta and SourceMeta.maxStrengthChargeSec)
+				local NativeSpeed = native and typeof(native.initialVelocity) == 'Vector3' and native.initialVelocity.Magnitude or 0
+				local NativeDraw = (native and tonumber(native.drawDurationSeconds)) or tonumber(LaunchData.drawDurationSeconds) or 0
+				local DeltaT = Lifetime
+
+				-- Bows scale with how long they were drawn. Crossbows and the other fixed-charge
+				-- launchers (multiShotChargeTime plus a reload) have no strength charge, so handing
+				-- the server a made-up draw and speed gets the arrow eaten. Keep every native value
+				-- for those and only replace where we aim.
+				local StrengthCharge = tonumber(SourceMeta and SourceMeta.maxStrengthChargeSec)
 					or tonumber(SourceMeta and SourceMeta.maxDrawDurationSeconds)
-					or (ProjectileName:find('arrow', 1, true) and 0.65 or 0.8)
 
 				local ProjectileSpeed, DrawDuration
-				if AutoCharge.Enabled or not Aim.Enabled then
-					ProjectileSpeed, DrawDuration = BaseSpeed, MaxDraw
+				if not StrengthCharge then
+					if NativeSpeed <= 0 then
+						return nil
+					end
+					ProjectileSpeed, DrawDuration = NativeSpeed, NativeDraw
+					DeltaT = (native and tonumber(native.deltaT)) or Lifetime
+				elseif AutoCharge.Enabled or not Aim.Enabled then
+					ProjectileSpeed, DrawDuration = BaseSpeed, StrengthCharge
 				else
-					local NativeSpeed = native and typeof(native.initialVelocity) == 'Vector3' and native.initialVelocity.Magnitude or 0
+					local MinScalar = tonumber(SourceMeta and SourceMeta.minStrengthScalar) or 1
 					if NativeSpeed > 0 then
 						ProjectileSpeed = NativeSpeed
 					else
-						local LiveDraw = tonumber(LaunchData.drawDurationSeconds) or 0
-						local DrawPct = MaxDraw > 0 and math.clamp(LiveDraw / MaxDraw, 0, 1) or 0
+						local DrawPct = StrengthCharge > 0 and math.clamp(NativeDraw / StrengthCharge, 0, 1) or 0
 						ProjectileSpeed = BaseSpeed * (MinScalar + (1 - MinScalar) * DrawPct)
 					end
-					DrawDuration = (native and tonumber(native.drawDurationSeconds)) or tonumber(LaunchData.drawDurationSeconds) or 0
+					DrawDuration = NativeDraw
 				end
 				if not ProjectileSpeed or ProjectileSpeed <= 0 then
 					return nil
@@ -6206,7 +6217,7 @@ run(function()
 					return {
 						initialVelocity = CFrame.lookAt(OffsetPosition, calc).LookVector * ProjectileSpeed,
 						positionFrom = OffsetPosition,
-						deltaT = Lifetime,
+						deltaT = DeltaT,
 						gravitationalAcceleration = Gravity,
 						drawDurationSeconds = DrawDuration
 					}
@@ -7464,12 +7475,17 @@ run(function()
 
 	-- The server only accepts the shot if its own hand already holds the tool, so wait for the
 	-- equip round trip instead of firing after a fixed sleep.
+	local fhHubTool = nil
+	local fhLegitShot = false
 	local function fhEquipAwait(tool)
 		if not tool or not tool.Parent then return false end
 		local check = lplr.Character and lplr.Character:FindFirstChild('HandInvItem')
 		local handNow = store.hand and store.hand.tool
 		if check and check.Value == tool and handNow and (handNow == tool or handNow.Name == tool.Name) then return true end
-		if not pcall(switchItem, tool, 0) then return false end
+		local switchedNow = false
+		pcall(function() switchedNow = switchItem(tool, 0) == true end)
+		if not switchedNow then return false end
+		fhHubTool = tool
 		local timeout = fhSwapTimeout()
 		if fhAwaitHand(tool, timeout) then return true end
 		pcall(function() bedwars.Client:Get(remotes.EquipItem):CallServerAsync({hand = tool}) end)
@@ -7479,10 +7495,17 @@ run(function()
 	local fhRestoreToken = 0
 	local fhShotSeq = 0
 	local function fhRestoreSword()
+		if fhLegitShot then return end
 		local sw = store.tools.sword
 		if not sw or not sw.tool or not sw.tool.Parent then return end
 		local check = lplr.Character and lplr.Character:FindFirstChild('HandInvItem')
 		if not check then return end
+		-- If the player picked something else while the shot was in flight, that is their hand now.
+		if fhHubTool and check.Value and check.Value ~= fhHubTool and check.Value.Parent then
+			fhHubTool = nil
+			return
+		end
+		fhHubTool = nil
 		fhRestoreToken = fhRestoreToken + 1
 		local token = fhRestoreToken
 		check.Value = sw.tool
@@ -8065,6 +8088,7 @@ run(function()
 		fhBusy = true
 		store._fhBusySince = workspace:GetServerTimeNow()
 		local handReady = false
+		fhLegitShot = true
 		local shotOk, shotErr = pcall(function()
 			if hotbarSwitch(bowSlot) then
 				handReady = fhAwaitHand(item.tool, fhSwapTimeout())
@@ -8075,6 +8099,7 @@ run(function()
 				task.wait(0.075)
 			end
 		end)
+		fhLegitShot = false
 
 		-- Restore the exact slot selected before the projectile switch.
 		if originalSlot ~= nil then
