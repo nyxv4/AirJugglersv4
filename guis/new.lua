@@ -1,4 +1,4 @@
---NYXBUILD:nyx7
+--NYXBUILD:nyx8
 local mainapi = {
 	Categories = {},
 	GUIColor = {

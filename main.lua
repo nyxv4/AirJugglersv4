@@ -266,7 +266,7 @@ if not isfolder('NYX/assets/' .. gui) then
 end
 
 local guiPath = 'NYX/guis/' .. gui .. '.lua'
-local guiBuild = '--NYXBUILD:nyx7'
+local guiBuild = '--NYXBUILD:nyx8'
 local guiSource = isfile(guiPath) and readfile(guiPath) or ''
 if type(guiSource) ~= 'string' or not guiSource:find(guiBuild, 1, true) then
 	pcall(delfile, guiPath)
@@ -304,6 +304,22 @@ end
 if not vape.Init and not vape.Load then
 	error('[NYX] failed to initialize properly reinject to fix this bs')
 end
+
+-- A cached or alternate GUI can come back without every category the game files
+-- build modules into; create whatever is missing instead of losing those modules.
+do
+	local required = {'Combat', 'Blatant', 'Render', 'Utility', 'World', 'Kits', 'Inventory', 'Minigames', 'Legit'}
+	if type(vape.Categories) == 'table' and type(vape.CreateCategory) == 'function' then
+		for _, name in ipairs(required) do
+			if not vape.Categories[name] then
+				pcall(function()
+					vape:CreateCategory({ Name = name, Size = UDim2.fromOffset(14, 14) })
+				end)
+			end
+		end
+	end
+end
+
 shared.vape = vape
 task.wait(0.1)
 
