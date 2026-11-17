@@ -4403,6 +4403,43 @@ run(function()
 	local _saVelStamp = {}
 	local fovConn
 
+	local saSwapAt = 0
+	local saHandWatch
+	local function saCurrentHand()
+		return liveHandTool() or (store.hand and store.hand.tool)
+	end
+	local function startHandWatch()
+		if saHandWatch then return end
+		local lastHand = saCurrentHand()
+		saSwapAt = os.clock() - 10
+		saHandWatch = runService.Heartbeat:Connect(function()
+			local hand = saCurrentHand()
+			if hand ~= lastHand then
+				lastHand = hand
+				saSwapAt = os.clock()
+			end
+		end)
+	end
+
+	local function stopHandWatch()
+		if saHandWatch then
+			saHandWatch:Disconnect()
+			saHandWatch = nil
+		end
+	end
+
+	-- A shot that leaves in the same breath as a hotbar swap reaches the server before its hand
+	-- holds the tool, and the server drops it. Pace the packet to the equip round trip instead.
+	local function awaitShotHand()
+		local settle = math.clamp(netPing() * 2 + 0.05, 0.1, 0.6)
+		local deadline = os.clock() + 0.7
+		while os.clock() - saSwapAt < settle and os.clock() < deadline do
+			if not SilentAim.Enabled then return false end
+			task.wait()
+		end
+		return true
+	end
+
 	local function getMousePosition()
 		if inputService.TouchEnabled then
 			return gameCamera.ViewportSize / 2
@@ -4582,6 +4619,26 @@ run(function()
 			Sort = sortmethods[SortMethod.Value or 'Cursor'],
 			Origin = origin,
 		})
+
+		if not plr then
+			-- Point blank the root part drops below the viewport, so the cursor pass skips the
+			-- enemy entirely and the shot goes out raw. Take the nearest body in front instead.
+			local look = gameCamera.CFrame.LookVector
+			local best, bestDist = nil, math.huge
+			for _, ent in entitylib.List do
+				if ent.Player and not Targets.Players.Enabled then continue end
+				if ent.NPC and not (Targets.NPCs and Targets.NPCs.Enabled) then continue end
+				if not ent.Targetable or not ent.RootPart or not entitylib.isVulnerable(ent) then continue end
+				local delta = ent.RootPart.Position - origin
+				local dist3 = delta.Magnitude
+				if dist3 > math.min(Range.Value, 24) or dist3 < 0.01 then continue end
+				if look:Dot(delta.Unit) < 0.15 then continue end
+				if dist3 < bestDist and (not Targets.Walls.Enabled or not entitylib.Wallcheck(origin, ent.RootPart.Position, Targets.Walls.Enabled, ent)) then
+					best, bestDist = ent, dist3
+				end
+			end
+			plr = best
+		end
 		if not plr then return end
 
 		local targetBodyPart = getTargetPart(plr)
@@ -4669,6 +4726,7 @@ run(function()
 				if SAFOVCircle and SAFOVCircle.Enabled then
 					runFOVCircle(true)
 				end
+				startHandWatch()
 				SilentAim:Clean(watchTargets())
 				if not namecallHooked then
 					namecallHooked = true
@@ -4686,6 +4744,11 @@ run(function()
 							local args = table.pack(select(2, ...))
 							local ok, newVelocity = pcall(solveSilent, args)
 							if ok and typeof(newVelocity) == 'Vector3' and newVelocity.Magnitude > 0 then
+								local startedAt = os.clock()
+								pcall(awaitShotHand)
+								if typeof(args[9]) == 'number' then
+									args[9] = args[9] + (os.clock() - startedAt)
+								end
 								args[6] = newVelocity
 								if AutoCharge.Enabled and typeof(args[8]) == 'table' then
 									local sourceTool = args[1]
@@ -4712,6 +4775,7 @@ run(function()
 				lockedRandomPart = nil
 				table.clear(_saVelHistory)
 				table.clear(_saVelStamp)
+				stopHandWatch()
 				runFOVCircle(false)
 			end
 		end,
@@ -6018,6 +6082,42 @@ run(function()
 		print('[ProjectileAimbot] ' .. tostring(text))
 	end
 
+	local paSwapAt = 0
+	local paHandWatch
+	local function paCurrentHand()
+		return liveHandTool() or (store.hand and store.hand.tool)
+	end
+	local function paStartHandWatch()
+		if paHandWatch then return end
+		local lastHand = paCurrentHand()
+		paSwapAt = os.clock() - 10
+		paHandWatch = runService.Heartbeat:Connect(function()
+			local hand = paCurrentHand()
+			if hand ~= lastHand then
+				lastHand = hand
+				paSwapAt = os.clock()
+			end
+		end)
+	end
+
+	local function paStopHandWatch()
+		if paHandWatch then
+			paHandWatch:Disconnect()
+			paHandWatch = nil
+		end
+	end
+
+	-- Same race SilentAim paces around: a shot sent before the server's hand holds the tool is
+	-- thrown away without an answer.
+	local function paAwaitHand()
+		local settle = math.clamp(netPing() * 2 + 0.05, 0.1, 0.6)
+		local deadline = os.clock() + 0.7
+		while os.clock() - paSwapAt < settle and os.clock() < deadline do
+			if not ProjectileAimbot or not ProjectileAimbot.Enabled then return end
+			task.wait()
+		end
+	end
+
 	local function paSolve(Tool, ProjectileName, PositionFrom, NativeVelocity)
 		if not ProjectileAimbot or not ProjectileAimbot.Enabled then
 			return nil
@@ -6157,6 +6257,41 @@ run(function()
 			end
 		})
 
+		if (not Ent or not Value) then
+			-- Point blank the root part drops below the viewport and the cursor pass skips the
+			-- enemy; take the nearest body in front of the camera instead.
+			local MyRoot = entitylib.character and entitylib.character.RootPart
+			local look = gameCamera.CFrame.LookVector
+			local MaxClose = math.min(Distance.Value or 24, 24)
+			local candidates = {}
+			for _, candidate in entitylib.List do
+				if candidate.Player and not Targets.Players.Enabled then continue end
+				if candidate.NPC and not (Targets.NPCs and Targets.NPCs.Enabled) then continue end
+				if not candidate.Targetable or not candidate.RootPart or not candidate.Character then continue end
+				if not entitylib.isVulnerable(candidate) then continue end
+				if MiloCheck.Enabled and IsDisguised(candidate) then continue end
+				local delta = candidate.RootPart.Position - PositionFrom
+				local dist3 = delta.Magnitude
+				if dist3 > MaxClose or dist3 < 0.01 then continue end
+				if look:Dot(delta.Unit) < 0.15 then continue end
+				if MyRoot and (candidate.RootPart.Position - MyRoot.Position).Magnitude > Distance.Value then continue end
+				table.insert(candidates, {ent = candidate, dist = dist3})
+			end
+			table.sort(candidates, function(a, b)
+				return a.dist < b.dist
+			end)
+			for i = 1, math.min(#candidates, 5) do
+				local candidate = candidates[i].ent
+				if not Targets.Walls.Enabled or not entitylib.Wallcheck(PositionFrom, candidate.RootPart.Position, Targets.Walls.Enabled, candidate) then
+					local solved = Solve(candidate)
+					if solved then
+						Ent, Value = candidate, solved
+						break
+					end
+				end
+			end
+		end
+
 		if Ent and Value then
 			if targetinfo and targetinfo.Targets then
 				targetinfo.Targets[Ent] = tick() + 1
@@ -6219,6 +6354,11 @@ run(function()
 					local packed = table.pack(select(2, ...))
 					local ok, Velocity = pcall(paSolveShot, packed)
 					if ok and typeof(Velocity) == 'Vector3' and Velocity.Magnitude > 0 then
+						local startedAt = os.clock()
+						pcall(paAwaitHand)
+						if typeof(packed[9]) == 'number' then
+							packed[9] = packed[9] + (os.clock() - startedAt)
+						end
 						packed[6] = Velocity
 						paLog('packet', 'shot packet aimed: ' .. tostring(packed[3]))
 						return paOldNamecall(remote, table.unpack(packed, 1, packed.n))
@@ -6238,11 +6378,13 @@ run(function()
 					controller.calculateImportantLaunchValues = Old
 				end
 				Old, Hook = nil, nil
+				paStopHandWatch()
 				if CircleObject then
 					CircleObject.Visible = false
 				end
 				return
 			end
+			paStartHandWatch()
 
 			local silentAim = vape.Modules and vape.Modules['SilentAim']
 			if silentAim and silentAim.Enabled then
@@ -10249,72 +10391,107 @@ end)
 run(function()
     local BCR
     local Value
-    local CpsConstants = nil
-    
+    local Tables
+    local oldCPS = 12
+
+    -- Every copy of the constant the client placer might read, so a cached or duplicated table
+    -- does not keep the old pace alive.
+    local function collectTables()
+        local found, seen = {}, {}
+        local function add(t)
+            if type(t) == 'table' and not seen[t] then
+                seen[t] = true
+                table.insert(found, t)
+            end
+        end
+        local ok, constants = pcall(function()
+            return require(replicatedStorage.TS['shared-constants'])
+        end)
+        if ok and type(constants) == 'table' then
+            add(constants.CpsConstants)
+        end
+        add(bedwars.CpsConstants)
+        add(bedwars.SharedConstants)
+        add(bedwars.SharedConstants and bedwars.SharedConstants.CpsConstants)
+        return found
+    end
+
+    local function wantedCPS()
+        return Value.Value == 0 and 9e9 or Value.Value
+    end
+
+    local function applyCPS(cps)
+        if not Tables then
+            Tables = collectTables()
+            if #Tables == 0 then
+                Tables = nil
+                return false
+            end
+            oldCPS = tonumber(Tables[1].BLOCK_PLACE_CPS) or oldCPS
+        end
+        for _, t in Tables do
+            t.BLOCK_PLACE_CPS = cps
+        end
+        return true
+    end
+
     BCR = vape.Categories.Blatant:CreateModule({
         Name = "BlockCPSRemover",
         Function = function(callback)
-            
             if callback then
-                task.wait(1)
-                
-                pcall(function()
-                    CpsConstants = require(replicatedStorage.TS['shared-constants']).CpsConstants
-                end)
-                
-                if not CpsConstants then
-                    pcall(function()
-                        CpsConstants = bedwars.CpsConstants
-                    end)
-                end
-                
-                if CpsConstants then
-                    local newCPS = Value.Value == 0 and 1000 or Value.Value
-                    CpsConstants.BLOCK_PLACE_CPS = newCPS
-                    
-                    if isMobile then
-                        for _, v in {'2', '5'} do
-                            pcall(function()
-                                BCR:Clean(lplr.PlayerGui.MobileUI[v].MouseButton1Down:Connect(function()
-                                    if CpsConstants then
-                                        local currentValue = Value.Value == 0 and 1000 or Value.Value
-                                        CpsConstants.BLOCK_PLACE_CPS = currentValue
-                                    end
-                                end))
-                            end)
-                        end
-                    end
-                    
+                if not applyCPS(wantedCPS()) then
                     task.spawn(function()
-                        while BCR.Enabled do
-                            local currentValue = Value.Value == 0 and 1000 or Value.Value
-                            if CpsConstants.BLOCK_PLACE_CPS ~= currentValue then
-                                CpsConstants.BLOCK_PLACE_CPS = currentValue
-                            end
-                            task.wait(0.3)
+                        for _ = 1, 20 do
+                            task.wait(0.25)
+                            if not BCR.Enabled then return end
+                            if applyCPS(wantedCPS()) then break end
                         end
                     end)
                 end
-                
-            else
-                if CpsConstants then
-                    CpsConstants.BLOCK_PLACE_CPS = 12
+
+                if isMobile then
+                    for _, v in {'2', '5'} do
+                        pcall(function()
+                            BCR:Clean(lplr.PlayerGui.MobileUI[v].MouseButton1Down:Connect(function()
+                                applyCPS(wantedCPS())
+                            end))
+                        end)
+                    end
                 end
+
+                task.spawn(function()
+                    while BCR.Enabled do
+                        if Tables then
+                            local want = wantedCPS()
+                            for _, t in Tables do
+                                if t.BLOCK_PLACE_CPS ~= want then
+                                    t.BLOCK_PLACE_CPS = want
+                                end
+                            end
+                        else
+                            applyCPS(wantedCPS())
+                        end
+                        task.wait(0.3)
+                    end
+                end)
+            else
+                applyCPS(oldCPS or 12)
             end
         end,
-        Tooltip = 'place blocks faster'
+        Tooltip = 'Raises the block place limit so fast building stops eating clicks; 0 on the slider removes it'
     })
-    
+
     Value = BCR:CreateSlider({
         Name = "CPS Limit",
-        Suffix = "CPS",
-        Default = 12,
-        Min = 12,
-        Max = 20,
+        Suffix = function(v)
+            return v == 0 and 'CPS (unlimited)' or 'CPS'
+        end,
+        Default = 0,
+        Min = 0,
+        Max = 100,
         Function = function()
-            if BCR.Enabled and CpsConstants then
-                local newCPS = Value.Value == 0 and 1000 or Value.Value
-                CpsConstants.BLOCK_PLACE_CPS = newCPS
+            if BCR.Enabled then
+                applyCPS(wantedCPS())
             end
         end,
     })
