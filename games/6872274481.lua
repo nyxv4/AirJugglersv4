@@ -7066,15 +7066,16 @@ run(function()
 	local lastAttackTime = 0
 	local lastTargetTime = 0
 	local lastAnimTime = 0 -- Track when last animation was played to prevent doubling
+	local lastSwingAnim = 0 -- Gate for the real sword swing so it runs at the sword's own speed
 	local anims, AnimDelay, AnimTween, armC0 = vape.Libraries.auraanims, tick()
 	local FROZEN_THRESHOLD = 10
-	local HIT_PERIOD = 0.28333333333333333 -- 17 frames, matches the Stealth cadence
+	local HIT_PERIOD = 0.296 -- fallback only; the real period comes from SwordTiming.resolvePeriod
 	local SERVER_FLOOR = 0.292
 	local SERVER_REACH = 14.399
 	local NORMAL_SWORD_SWING_SPEED = 0.35 -- Standard in-game sword swing speed, NEVER changes
 	local kaPeriod = HIT_PERIOD
 	local animPeriod = NORMAL_SWORD_SWING_SPEED -- Animation is ALWAYS decoupled from hit timing
-	local kaNextFire = 0
+	local kaLastSrv = 0 -- scheduled server time of the last accepted hit
 	local lastProjectileTime = 0 -- Track when last projectile was fired
 	local glueRemote = {InvokeServer = function() end}
 	local projectileRemote = {InvokeServer = function() end}
@@ -7083,10 +7084,10 @@ run(function()
 
 	-- DYNAMIC SWORD TIMING & HITSPACING SYSTEM
 	local SwordTiming = {
-		SafeSpacing  = 0.2833, -- 17 heartbeat frames = 68/240, ~35 hits per 10s
-		HighSpacing  = 0.2825, -- spacing in each hits for Advanced Mode only
-		HitFloor     = 0.282, -- server's minimum allowed time between hits. Going below this will cause ghost hits.
-		GapFloor     = 0.282, -- minimum gap between con hits
+		SafeSpacing  = 0.295, -- Stealth Mode delay
+		HighSpacing  = 0.2855, -- spacing used by the Dynamic/Advanced calculation
+		HitFloor     = 0.292, -- the server's minimum allowed time between hits. Going below this will cause ghost hits.
+		GapFloor     = 0.2945, -- minimum gap between con hits
 		ArrivalFloor = 0.274, -- how early it can arrive b4 ghosting 
 		CooldownCorrection = (0.017999999225139618 / 10) + 0.013412,
 	}
@@ -7157,24 +7158,21 @@ run(function()
 		return preciseRemainder
 	end
 
-	-- Sends sit on the fixed 17-frame rhythm the server accepts and are anchored to the real
-	-- send time, so a late frame or a missed attempt can never queue a catch-up burst.
-	SwordTiming.Dt = 1 / 60
-	SwordTiming.LastSendSrv = 0
-
+	-- The server, not the client, caps how often a hit lands. Retrying faster than that cap costs
+	-- nothing and makes a late frame harmless, while a gap that lands just outside a window costs a
+	-- whole period. This is the Stealth/Dynamic mapping the consistent build used.
 	function SwordTiming.resolvePeriod(meta)
 		local mode = (HitregMode and HitregMode.Value) or 'Stealth Mode'
-		if mode == 'Stealth Mode' then
-			return HIT_PERIOD
+		local speed = (meta and meta.sword and meta.sword.attackSpeed) or 0.3
+		local delay
+		if mode == 'Dynamic' then
+			delay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
+		elseif mode == 'Advanced Mode' then
+			delay = 49.55
+		else
+			delay = 50
 		end
-		local speed = meta and meta.sword and meta.sword.attackSpeed
-		local delay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
-		local highMode = (mode == 'Dynamic') and 'Dynamic' or 'Stealth Mode'
-		return quantize240(SwordTiming.Calculate(speed or 0.3, highMode, delay, 0, 35))
-	end
-
-	function SwordTiming.noteSend()
-		SwordTiming.LastSendSrv = workspace:GetServerTimeNow()
+		return quantize240(SwordTiming.Calculate(speed, 'Dynamic', delay, 0, 35))
 	end
 
 	local function markAttackResult(success)
@@ -7220,20 +7218,6 @@ run(function()
 		elseif vape and vape.CreateNotification then
 			vape:CreateNotification(title, msg, 3)
 		end
-	end
-
-	-- The server validates the hit against where the target stands when the request arrives,
-	-- not where we saw it. Lead moving targets by half a round trip so the ray lands on them.
-	local function leadTargetPoint(tchar, basePos)
-		local ping = netPing()
-		if ping <= 0.02 then return basePos end
-		local part = tchar and (tchar:FindFirstChild('HumanoidRootPart') or tchar.PrimaryPart)
-		local vel = part and part.AssemblyLinearVelocity
-		if not vel then return basePos end
-		local flat = Vector3.new(vel.X, 0, vel.Z)
-		local speed = flat.Magnitude
-		if speed < 1 or speed > 60 then return basePos end
-		return basePos + flat * math.clamp(ping * 0.75, 0.01, 0.1)
 	end
 
 	local function FireAttackRemote(weapon, entityInstance, selfPos, targetPos)
@@ -7376,38 +7360,115 @@ run(function()
 		end
 	end
 
-	local function getWeaponAttackSpeed(sword, meta)
-		if not sword or not sword.tool then return HIT_PERIOD end
-		local toolName = sword.tool.Name:lower()
+	-- The game's swing is two animations: the character's third-person list and the viewmodel's
+	-- first-person list. Play those exact lists at the sword's own speed, and use playSwordEffect
+	-- only for its sound/effects (playAnimation = false).
+	local swingCycle = 0
+	local SWING_ASSET_FALLBACK = {
+		SWORD_SWING = 'rbxassetid://4947108314',
+		FP_SWING_SWORD = 'rbxassetid://8089691925',
+	}
 
-		if toolName:find('frosty_hammer') then
-			local speedLvl = lplr:GetAttribute('speed') or sword.tool:GetAttribute('speed') or 0
-			if speedLvl == 3 then
-				return 0.25
-			elseif speedLvl == 2 then
-				return 0.28
-			elseif speedLvl == 1 then
-				return 0.32
+	-- Item meta stores swing animations either as asset ids or as AnimationType values. Resolve both,
+	-- then play the track the way the game does (Action priority on the model's own Animator).
+	local function swingAssetId(value)
+		if value == nil then return nil end
+		if type(value) == 'string' and value:find('^rbxassetid://') then return value end
+		local util = bedwars.GameAnimationUtil
+		if util and util.getAssetId then
+			local ok, id = pcall(util.getAssetId, util, value)
+			if ok and type(id) == 'string' and id ~= '' then return id end
+		end
+		local types = bedwars.AnimationType
+		local name = type(value) == 'number' and type(types) == 'table' and types[value] or value
+		if type(name) == 'string' then
+			return SWING_ASSET_FALLBACK[name]
+		end
+		return nil
+	end
+
+	local function playSwingTrack(model, assetId)
+		if not assetId or typeof(model) ~= 'Instance' then return nil end
+		local humanoid = model:FindFirstChildOfClass('Humanoid')
+		local animator = humanoid and humanoid:FindFirstChildOfClass('Animator')
+		if not animator then return end
+		local animation = Instance.new('Animation')
+		animation.AnimationId = assetId
+		local ok, track = pcall(animator.LoadAnimation, animator, animation)
+		if not (ok and track) then return end
+		track.Priority = Enum.AnimationPriority.Action
+		track.Ended:Once(function()
+			track:Destroy()
+		end)
+		track:Play()
+		return track
+	end
+
+	local function isRawAnimId(value)
+		return type(value) == 'string' and value:find('^rbxassetid://') ~= nil
+	end
+
+	local lastThirdTrack
+	local function playAuraSwing(meta, sword)
+		local data = meta and meta.sword
+		if not data then return end
+		local types = bedwars.AnimationType or {}
+		local third = data.swingAnimations
+		if type(third) ~= 'table' or #third == 0 then
+			if types.SWORD_SWING ~= nil then
+				third = {types.SWORD_SWING}
 			else
-				return 0.35
+				third = {SWING_ASSET_FALLBACK.SWORD_SWING}
+			end
+		end
+		local first = data.firstPersonSwingAnimations
+		if type(first) ~= 'table' or #first == 0 then
+			if types.FP_SWING_SWORD ~= nil then
+				first = {types.FP_SWING_SWORD}
+			else
+				first = {SWING_ASSET_FALLBACK.FP_SWING_SWORD}
 			end
 		end
 
-		if meta and meta.sword and meta.sword.attackSpeed then
-			return meta.sword.attackSpeed
+		local function pick(list)
+			if type(list) ~= 'table' or #list == 0 then return nil end
+			if data.randomizeSwingAnimations then
+				return list[math.random(1, #list)]
+			end
+			return list[math.min(swingCycle, #list - 1) + 1]
+		end
+		local thirdAnim, firstAnim = pick(third), pick(first)
+		if type(third) == 'table' and #third > 0 then
+			swingCycle = (swingCycle + 1) % #third
 		end
 
-		return HIT_PERIOD
-	end
+		local okThird, thirdId = pcall(swingAssetId, thirdAnim)
+		if okThird and thirdId then
+			if lastThirdTrack then
+				pcall(lastThirdTrack.Stop, lastThirdTrack, 0)
+			end
+			lastThirdTrack = playSwingTrack(lplr.Character, thirdId)
+		end
 
-	-- Same call the game's own swing path makes, so the aura looks exactly like a manual swing.
-	local function triggerFirstPersonSwing(meta, sword)
-		pcall(function()
-			if not (bedwars.SwordController and meta) then return end
-			local skin = sword and sword.itemSkin
-			bedwars.SwordController:playSwordEffect(meta, false, skin and {itemSkin = skin} or nil)
-			bedwars.SwordController.lastSwing = tick()
-		end)
+		local viewmodel = bedwars.ViewmodelController
+		if viewmodel and viewmodel.playAnimation and not isRawAnimId(firstAnim) then
+			pcall(function() viewmodel:playAnimation(firstAnim) end)
+		else
+			local okFirst, firstId = pcall(swingAssetId, firstAnim)
+			if okFirst and firstId then
+				local camera = workspace.CurrentCamera
+				pcall(playSwingTrack, camera and camera:FindFirstChild('Viewmodel'), firstId)
+			end
+		end
+
+		local controller = bedwars.SwordController
+		if controller then
+			pcall(function()
+				local skin = sword and sword.itemSkin
+				controller:playSwordEffect(meta, false, {itemSkin = skin, playAnimation = false})
+			end)
+			controller.lastSwing = tick()
+		end
 	end
 
 	-- REAL-TIME USE KITS ENGINE
@@ -8528,7 +8589,7 @@ run(function()
 	end
 
 	local function attemptFire()
-		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.5 then return false end
+		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
 
 		-- A sword hit sent right behind a bolt would cancel it; the bow stays raised until the
 		-- swap finishes, so a short fixed guard is enough. Ping is identical on both packets.
@@ -8558,7 +8619,6 @@ run(function()
 		local targetPos = tchar.PrimaryPart.Position
 		local dist = (targetPos - selfPos).Magnitude
 		if dist > AttackRange.Value + 0 then return false end
-		local sendPos = leadTargetPoint(tchar, targetPos)
 
 		if AirHit and AirHit.Enabled and AirHitsChance and AirHitsChance.Value < 100 then
 			local hum = tchar:FindFirstChildOfClass('Humanoid')
@@ -8584,17 +8644,18 @@ run(function()
 			return false
 		end
 
-		if not FireAttackRemote(weaponInst, tchar, selfPos, sendPos) then
+		if not FireAttackRemote(weaponInst, tchar, selfPos, targetPos) then
 			markAttackResult(false)
 			return false
 		end
-		SwordTiming.noteSend()
-
-		-- Play the real swing with every accepted send so the animation matches the hit rhythm.
-		triggerFirstPersonSwing(meta, sword)
-		lastAnimTime = tick()
-
 		local srvNow = workspace:GetServerTimeNow()
+
+		-- The swing runs at the sword's own speed, not at the send rate.
+		if tick() - lastSwingAnim >= NORMAL_SWORD_SWING_SPEED then
+			playAuraSwing(meta, sword)
+			lastSwingAnim = tick()
+			lastAnimTime = lastSwingAnim
+		end
 
 		lastAttackTime = tick()
 		store.attackReach = (dist * 100) // 1 / 100
@@ -8602,6 +8663,13 @@ run(function()
 
 		-- Mark attack as successful for dynamic delay system
 		markAttackResult(true)
+
+		if kaLastSrv > 0 then
+			kaLastSrv = kaLastSrv + kaPeriod
+			if kaLastSrv < srvNow then kaLastSrv = srvNow end
+		else
+			kaLastSrv = srvNow
+		end
 
 		if bedwars.SwordController then
 			bedwars.SwordController.lastAttack = srvNow
@@ -8614,31 +8682,19 @@ run(function()
 
 		kaPeriod = HIT_PERIOD
 		animPeriod = NORMAL_SWORD_SWING_SPEED
-		kaNextFire = 0
-		SwordTiming.LastSendSrv = 0
+		kaLastSrv = workspace:GetServerTimeNow() - kaPeriod
 
 		-- Diagnostic only: throttle repeated attemptFire errors without changing attack logic.
 		local lastAttemptFireError = 0
-		local lastFrameAt = workspace:GetServerTimeNow()
 
 		killauraFireLoop = task.spawn(function()
 			while Killaura and Killaura.Enabled do
 				runService.Heartbeat:Wait()
 
-				local nowSrv = workspace:GetServerTimeNow()
-				local frameDt = nowSrv - lastFrameAt
-				lastFrameAt = nowSrv
-				if frameDt <= 0 or frameDt > 0.1 then frameDt = SwordTiming.Dt end
-				SwordTiming.Dt = SwordTiming.Dt + (frameDt - SwordTiming.Dt) * 0.2
-
 				local updateOk, updateErr = pcall(function()
 					local sword, meta = getAttackData()
 					if sword and meta then
-						local period = SwordTiming.resolvePeriod(meta)
-						if period ~= kaPeriod then
-							kaPeriod = period
-							kaNextFire = (SwordTiming.LastSendSrv > 0 and SwordTiming.LastSendSrv + kaPeriod) or nowSrv
-						end
+						kaPeriod = SwordTiming.resolvePeriod(meta)
 					else
 						kaPeriod = HIT_PERIOD
 					end
@@ -8650,21 +8706,14 @@ run(function()
 					warn('[Killaura] timing update error: ' .. tostring(updateErr))
 				end
 
-				if kaNextFire == 0 then
-					kaNextFire = nowSrv
-				end
-				local early = math.min(1 / 240, kaPeriod * 0.02)
-				if nowSrv + early >= kaNextFire then
-					local ok, result = pcall(attemptFire)
+				-- Aim half a frame early so a frame boundary cannot cost a whole send.
+				local heartbeatDt = 1 / 60
+				local target = kaPeriod - math.min(heartbeatDt * 0.5, kaPeriod * 0.06)
+				if (workspace:GetServerTimeNow() - kaLastSrv) >= target then
+					local ok, err = pcall(attemptFire)
 					if not ok and (tick() - lastAttemptFireError) >= 2 then
 						lastAttemptFireError = tick()
-						warn('[Killaura] attemptFire error: ' .. tostring(result))
-					end
-					if ok and result then
-						-- Only a real send advances the schedule, and it keeps the schedule's
-						-- phase so slow frames cannot round every interval up by a frame.
-						kaNextFire = kaNextFire + kaPeriod
-						if kaNextFire < nowSrv then kaNextFire = nowSrv end
+						warn('[Killaura] attemptFire error: ' .. tostring(err))
 					end
 				end
 			end
@@ -8680,7 +8729,7 @@ run(function()
 		_graceUntil = 0
 		_fastAcqTime = 0
 		_fastAcqRes = nil
-		kaNextFire = 0
+		kaLastSrv = 0
 		animPeriod = NORMAL_SWORD_SWING_SPEED
 	end
 
@@ -8702,6 +8751,7 @@ run(function()
 				lastAttackTime = 0
 				lastTargetTime = 0
 				lastAnimTime = 0
+				lastSwingAnim = 0
 				resetSwordCooldown()
 				preciseRemainder = 0
 				preciseTimestamp = tick()
@@ -9348,7 +9398,7 @@ run(function()
 	local GrandArmC0
 	local GrandAnimActive = false
 	local GRAND_SERVER_REACH = 14.399
-	local GRAND_HIT_PERIOD = 0.28333333333333333
+	local GRAND_HIT_PERIOD = 0.29583333333333334 -- fallback only; replaced per weapon each frame
 
 	function GrandFire.projectileInHand()
 		local live = liveHandTool()
@@ -9534,7 +9584,7 @@ run(function()
 	end
 
 	function GrandFire.attempt()
-		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.5 then return false end
+		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
 		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.075 then return false end
 		if tick() < GrandFire.ItemUntil then return false end
 
@@ -9550,23 +9600,29 @@ run(function()
 		local targetPos = tchar.PrimaryPart.Position
 		local dist = (targetPos - selfPos).Magnitude
 		if dist > GrandAttackRange.Value then return false end
-		local sendPos = leadTargetPoint(tchar, targetPos)
 
 		if sword.tool.Name:find('summoner_claw') then
 			pcall(function() KaidaController:request(tchar) end)
 			return false
 		end
 
-		if not grandFireAttack(grandWeaponInstance(sword), tchar, selfPos, sendPos) then
+		if not grandFireAttack(grandWeaponInstance(sword), tchar, selfPos, targetPos) then
 			return false
 		end
-		SwordTiming.noteSend()
-
-		-- Play the real swing with every accepted send so the animation matches the hit rhythm.
-		triggerFirstPersonSwing(meta, sword)
-		lastAnimTime = tick()
 
 		local srvNow = workspace:GetServerTimeNow()
+
+		-- The swing runs at the sword's own speed, not at the send rate.
+		if tick() - lastSwingAnim >= NORMAL_SWORD_SWING_SPEED then
+			playAuraSwing(meta, sword)
+			lastSwingAnim = tick()
+			lastAnimTime = lastSwingAnim
+		end
+
+		GrandLastSrv = GrandLastSrv + GrandFire.Period
+		if GrandLastSrv < srvNow then
+			GrandLastSrv = srvNow
+		end
 		store.attackReach = (dist * 100) // 1 / 100
 		store.attackReachUpdate = tick() + 1
 		if bedwars.SwordController then
@@ -9580,46 +9636,26 @@ run(function()
 
 		GrandFire.Period = GRAND_HIT_PERIOD
 		GrandLastSrv = workspace:GetServerTimeNow() - GrandFire.Period
-		SwordTiming.LastSendSrv = 0
 		GrandFire.GraceTarget, GrandFire.GraceUntil = nil, 0
 		GrandFire.AcqTime, GrandFire.AcqRes = 0, nil
 		GrandFire.ItemUntil = 0
 		GrandFire.LastSword = nil
 		GrandFire.HoldTarget, GrandFire.HoldUntil = nil, 0
 
-		local lastFrameAt = workspace:GetServerTimeNow()
-
 		GrandFire.Loop = task.spawn(function()
 			while GrandKillaura and GrandKillaura.Enabled do
 				runService.Heartbeat:Wait()
 				GrandFire.watchHand()
 
-				local nowSrv = workspace:GetServerTimeNow()
-				local frameDt = nowSrv - lastFrameAt
-				lastFrameAt = nowSrv
-				if frameDt <= 0 or frameDt > 0.1 then frameDt = SwordTiming.Dt end
-				SwordTiming.Dt = SwordTiming.Dt + (frameDt - SwordTiming.Dt) * 0.2
-
 				local sword, meta = grandGetAttackData()
-				local period
 				if sword and meta then
-					period = SwordTiming.resolvePeriod(meta)
-				else
-					period = GrandFire.Period
-				end
-				if period ~= GrandFire.Period then
-					GrandFire.Period = period
-					GrandLastSrv = (SwordTiming.LastSendSrv > 0 and SwordTiming.LastSendSrv) or nowSrv
+					GrandFire.Period = SwordTiming.resolvePeriod(meta)
 				end
 
-				local early = math.min(1 / 240, GrandFire.Period * 0.02)
-				if nowSrv + early >= GrandLastSrv + GrandFire.Period then
-					local ok, sent = pcall(GrandFire.attempt)
-					if ok and sent then
-						-- Only a real send advances the schedule, keeping the phase on slow frames.
-						GrandLastSrv = GrandLastSrv + GrandFire.Period
-						if GrandLastSrv < nowSrv then GrandLastSrv = nowSrv end
-					end
+				local heartbeatDt = 1 / 60
+				local target = GrandFire.Period - math.min(heartbeatDt * 0.5, GrandFire.Period * 0.06)
+				if (workspace:GetServerTimeNow() - GrandLastSrv) >= target then
+					pcall(GrandFire.attempt)
 				end
 			end
 		end)
@@ -9649,6 +9685,7 @@ run(function()
 				end
 				GrandAttacking = false
 				GrandLastAnimTime = 0
+				lastSwingAnim = 0
 				GrandFire.ScanCache, GrandFire.ScanTime = nil, 0
 				resetSwordCooldown()
 				GrandFire.start()
