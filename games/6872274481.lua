@@ -5937,7 +5937,7 @@ run(function()
 	local MiloCheck
 	local Old, Hook
 	local ArcCheck = RaycastParams.new()
-	ArcCheck.FilterType = Enum.RaycastFilterType.Exclude
+	ArcCheck.FilterType = Enum.RaycastFilterType.Include
 
 	local TargetLimbs = {
 		Torso = {'UpperTorso', 'LowerTorso'},
@@ -6001,9 +6001,12 @@ run(function()
 		Name = 'ProjectileAimbot',
 		Function = function(callback)
 			if not callback then
-				if Hook and bedwars.ProjectileController.calculateImportantLaunchValues == Hook then
-					bedwars.ProjectileController.calculateImportantLaunchValues = Old
+				local controller = bedwars.ProjectileController
+				if Hook and controller and controller.calculateImportantLaunchValues == Hook then
+					controller.calculateImportantLaunchValues = Old
 					Old, Hook = nil, nil
+				else
+					Hook = nil
 				end
 				if CircleObject then
 					CircleObject.Visible = false
@@ -6011,8 +6014,9 @@ run(function()
 				return
 			end
 
-			if SilentAim and SilentAim.Enabled then
-				SilentAim:Toggle(false)
+			local silentAim = vape.Modules and vape.Modules['SilentAim']
+			if silentAim and silentAim.Enabled then
+				silentAim:SetEnabled(false)
 				notif('ProjectileAimbot', 'turned off SilentAim, they cant both run at once gng', 4)
 			end
 
@@ -6046,9 +6050,26 @@ run(function()
 			end
 
 			local function AimLaunchValues(self, LaunchData, WorldMeta, Origin, ShootPosition)
-				local LaunchPosition = ShootPosition or self:getLaunchPosition(Origin)
+				local LaunchPosition = ShootPosition
+				if not LaunchPosition then
+					local ok, res = pcall(self.getLaunchPosition, self, Origin)
+					if not (ok and typeof(res) == 'Vector3') then
+						local ok2, res2 = pcall(self.getLaunchPosition, self, store.hand and store.hand.tool)
+						res = ok2 and res2 or nil
+					end
+					if typeof(res) == 'Vector3' then
+						LaunchPosition = res
+					elseif entitylib.isAlive then
+						LaunchPosition = entitylib.character.RootPart.Position + Vector3.new(0, 2, 0)
+					end
+				end
 				if not LaunchPosition then
 					return
+				end
+
+				local map = workspace:FindFirstChild('Map')
+				if map then
+					ArcCheck.FilterDescendantsInstances = {map}
 				end
 
 				local ProjectileName = tostring(LaunchData.projectile or '')
@@ -6065,14 +6086,26 @@ run(function()
 					return
 				end
 
-				local ProjectileMeta = LaunchData:getProjectileMeta()
+				local metaOk, metaRes = pcall(LaunchData.getProjectileMeta, LaunchData)
+				local ProjectileMeta = metaOk and type(metaRes) == 'table' and metaRes or (bedwars.ProjectileMeta and bedwars.ProjectileMeta[ProjectileName])
+				if not ProjectileMeta then
+					return
+				end
 				local Lifetime = WorldMeta and (ProjectileMeta.predictionLifetimeSec or ProjectileMeta.lifetimeSec or 3) or (ProjectileMeta.lifetimeSec or 3)
-				local Gravity = (ProjectileMeta.gravitationalAcceleration or 196.2) * (LaunchData.gravityMultiplier or 1)
+				local Gravity = (tonumber(ProjectileMeta.gravitationalAcceleration) or 196.2) * (LaunchData.gravityMultiplier or 1)
+				if Gravity < 1 then
+					Gravity = 0
+				end
 				local ProjectileSpeed = (ProjectileMeta.launchVelocity or 100) * ((AutoCharge.Enabled or not Aim.Enabled) and 1 or (LaunchData.velocityMultiplier or 1))
 				local OffsetPosition = LaunchPosition + (ProjectileName == 'owl_projectile' and Vector3.zero or (LaunchData.fromPositionOffset or Vector3.zero))
 				local Tool = store.hand and store.hand.tool
+				local AutoChargeDuration = LaunchData.drawDurationSeconds
+				if AutoCharge.Enabled then
+					local handMeta = Tool and bedwars.ItemMeta and bedwars.ItemMeta[Tool.Name]
+					local sourceMeta = handMeta and handMeta.projectileSource
+					AutoChargeDuration = tonumber(sourceMeta and (sourceMeta.maxStrengthChargeSec or sourceMeta.maxDrawDurationSeconds)) or 5
+				end
 				local PartName = PartOption.Value == 'Dynamic' and (IsHeadshotProjectile(Tool and Tool.Name) and 'Head' or 'RootPart') or PartOption.Value
-				local Filtered = false
 
 				local function GetLaunchValues(Ent)
 					if not Ent.Character or not Ent.RootPart then
@@ -6141,29 +6174,22 @@ run(function()
 					local LaunchVelocity = (AimPosition - OffsetPosition).Unit * ProjectileSpeed
 
 					if Targets.Walls.Enabled and TravelTime then
-						if not Filtered then
-							local IgnoreList = {gameCamera, lplr.Character}
-							for _, v in entitylib.List do
-								if v.Character then
-									table.insert(IgnoreList, v.Character)
-								end
-							end
-							ArcCheck.FilterDescendantsInstances = IgnoreList
-							Filtered = true
-						end
-
 						if not prediction.IsTrajectoryClear(OffsetPosition, LaunchVelocity, Gravity, TravelTime, ArcCheck) then
 							return nil
 						end
 					end
 
-					return {
+					local Values = {
 						initialVelocity = LaunchVelocity,
 						positionFrom = OffsetPosition,
 						deltaT = Lifetime,
 						gravitationalAcceleration = Gravity,
-						drawDurationSeconds = AutoCharge.Enabled and 5 or LaunchData.drawDurationSeconds
+						drawDurationSeconds = AutoChargeDuration
 					}
+					if AutoCharge.Enabled then
+						Values.drawDurationSec = AutoChargeDuration
+					end
+					return Values
 				end
 
 				local Values, Attempts, Started = nil, 0, os.clock()
@@ -6199,7 +6225,13 @@ run(function()
 				end
 			end
 
-			Old = bedwars.ProjectileController.calculateImportantLaunchValues
+			local controller = bedwars.ProjectileController
+			if not controller or type(controller.calculateImportantLaunchValues) ~= 'function' then
+				ProjectileAimbot:SetEnabled(false)
+				notif('ProjectileAimbot', 'this game build no longer exposes calculateImportantLaunchValues, use SilentAim instead', 8)
+				return
+			end
+			Old = controller.calculateImportantLaunchValues
 			Hook = function(self, LaunchData, WorldMeta, Origin, ShootPosition, ...)
 				if ProjectileAimbot.Enabled then
 					local Success, Values = pcall(AimLaunchValues, self, LaunchData, WorldMeta, Origin, ShootPosition)
@@ -6210,7 +6242,7 @@ run(function()
 
 				return Old(self, LaunchData, WorldMeta, Origin, ShootPosition, ...)
 			end
-			bedwars.ProjectileController.calculateImportantLaunchValues = Hook
+			controller.calculateImportantLaunchValues = Hook
 		end,
 		Tooltip = 'Silently adjusts your aim towards the enemy'
 	})
