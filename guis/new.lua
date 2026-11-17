@@ -6625,7 +6625,7 @@ targetinfoobj = mainapi:CreateOverlay({
 			task.spawn(function()
 				repeat
 					targetinfo:UpdateInfo()
-					task.wait()
+					task.wait(0.1)
 				until not targetinfoobj.Button or not targetinfoobj.Button.Enabled
 			end)
 		end
@@ -6825,8 +6825,16 @@ targetinfo = {
 
 		targetinfobkg.Visible = v ~= nil or mainapi.gui.ScaledGui.ClickGui.Visible
 		if v then
-			targetinfoname.Text = v.Player and (targetinfodisplay.Enabled and v.Player.DisplayName or v.Player.Name) or v.Character and v.Character.Name or targetinfoname.Text
-			targetinfoshot.Image = 'rbxthumb://type=AvatarHeadShot&id='..(v.Player and v.Player.UserId or 1)..'&w=420&h=420'
+			local nametext = v.Player and (targetinfodisplay.Enabled and v.Player.DisplayName or v.Player.Name) or v.Character and v.Character.Name
+			if nametext and nametext ~= self.NameText then
+				targetinfoname.Text = nametext
+				self.NameText = nametext
+			end
+			local shotid = v.Player and v.Player.UserId or 1
+			if shotid ~= self.ShotId then
+				targetinfoshot.Image = 'rbxthumb://type=AvatarHeadShot&id='..shotid..'&w=420&h=420'
+				self.ShotId = shotid
+			end
 
 			if not v.Character then
 				v.Health = v.Health or 0
