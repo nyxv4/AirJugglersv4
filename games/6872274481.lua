@@ -8116,8 +8116,6 @@ run(function()
 	local killauraFireLoop
 	local _graceTarget = nil
 	local _graceUntil = 0
-	local _fastAcqTime = 0
-	local _fastAcqRes = nil
 
 	local function withinAngle(v)
 		if not AngleSlider or AngleSlider.Value >= 360 then return true end
@@ -8128,7 +8126,7 @@ run(function()
 		local facing = flatLV.Magnitude > 0.001 and flatLV.Unit or root.CFrame.RightVector
 		local flat = (v.RootPart.Position - root.Position) * Vector3.new(1, 0, 1)
 		if flat.Magnitude <= 1 then return true end
-		return math.acos(math.clamp(facing:Dot(flat.Unit), -1, 1)) <= math.rad(AngleSlider.Value) / 2
+		return facing:Dot(flat.Unit) >= math.cos(math.rad(AngleSlider.Value) * 0.5)
 	end
 
 	local function inReach(v)
@@ -8158,29 +8156,27 @@ run(function()
 				return g
 			end
 		end
-		local now = tick()
-		if (now - _fastAcqTime) < 0.03 and _fastAcqRes then
-			if not (aliveTarget(_fastAcqRes) and withinAngle(_fastAcqRes) and inReach(_fastAcqRes)) then return nil end
-			return _fastAcqRes
-		end
-		_fastAcqTime = now
-		_fastAcqRes = nil
+		-- Walls are raycast only for the angled candidates we actually consider, in sort order,
+		-- instead of once per entity inside AllPosition. Same result, far fewer rays per attempt.
+		local walls = Targets.Walls.Enabled
 		local list = entitylib.AllPosition({
 			Range = AttackRange.Value + 0,
-			Wallcheck = Targets.Walls.Enabled or nil,
 			Part = 'RootPart',
 			Players = Targets.Players.Enabled,
 			NPCs = Targets.NPCs.Enabled,
-			Limit = 5,
+			Limit = 8,
 			Sort = sortmethods[Sort.Value] or sortmethods['Distance']
 		})
+		local root = entitylib.character and entitylib.character.RootPart
+		local resolved = nil
 		for _, ent in list do
 			if withinAngle(ent) then
-				_fastAcqRes = ent
+				if walls and root and entitylib.Wallcheck(root.Position, ent.RootPart.Position, nil, ent) then continue end
+				resolved = ent
 				break
 			end
 		end
-		return _fastAcqRes
+		return resolved
 	end
 
 	local function attemptFire()
@@ -8207,11 +8203,13 @@ run(function()
 		end)
 
 		local char = lplr.Character
-		if not char or not char.PrimaryPart then return false end
+		if not char then return false end
 		local tchar = v.Character
-		if not tchar or not tchar.PrimaryPart then return false end
-		local selfPos = entitylib.character.RootPart.Position
-		local targetPos = tchar.PrimaryPart.Position
+		if not tchar or not tchar.Parent then return false end
+		local selfRoot = entitylib.character and entitylib.character.RootPart
+		local selfPos = selfRoot and selfRoot.Position
+		local targetPos = v.RootPart and v.RootPart.Position
+		if not selfPos or not targetPos then return false end
 		local dist = (targetPos - selfPos).Magnitude
 		if dist > AttackRange.Value + 0 then return false end
 
@@ -8224,7 +8222,7 @@ run(function()
 					inAir = st == Enum.HumanoidStateType.Jumping or st == Enum.HumanoidStateType.Freefall
 				end
 				if not inAir then
-					local root = tchar.PrimaryPart
+					local root = v.RootPart
 					local vy = root and root.AssemblyLinearVelocity.Y or 0
 					inAir = math.abs(vy) > 3
 				end
@@ -8284,8 +8282,21 @@ run(function()
 
 		killauraFireLoop = task.spawn(function()
 			while Killaura and Killaura.Enabled do
-				runService.Heartbeat:Wait()
+				local dt = runService.Heartbeat:Wait()
+				if type(dt) ~= 'number' then dt = 1 / 60 end
 
+				-- Aim half a frame early so a frame boundary cannot cost a whole send. Uses the real
+				-- frame delta so high-refresh clients do not send further ahead than they need to.
+				local target = kaPeriod - math.min(dt * 0.5, kaPeriod * 0.06)
+				if (workspace:GetServerTimeNow() - kaLastSrv) >= target then
+					local ok, err = pcall(attemptFire)
+					if not ok and (tick() - lastAttemptFireError) >= 2 then
+						lastAttemptFireError = tick()
+						warn('[Killaura] attemptFire error: ' .. tostring(err))
+					end
+				end
+
+				-- Bookkeeping after the clock check so it can never delay a ready hit.
 				local updateOk, updateErr = pcall(function()
 					local sword, meta = getAttackData()
 					if sword and meta then
@@ -8300,17 +8311,6 @@ run(function()
 					lastAttemptFireError = tick()
 					warn('[Killaura] timing update error: ' .. tostring(updateErr))
 				end
-
-				-- Aim half a frame early so a frame boundary cannot cost a whole send.
-				local heartbeatDt = 1 / 60
-				local target = kaPeriod - math.min(heartbeatDt * 0.5, kaPeriod * 0.06)
-				if (workspace:GetServerTimeNow() - kaLastSrv) >= target then
-					local ok, err = pcall(attemptFire)
-					if not ok and (tick() - lastAttemptFireError) >= 2 then
-						lastAttemptFireError = tick()
-						warn('[Killaura] attemptFire error: ' .. tostring(err))
-					end
-				end
 			end
 		end)
 	end
@@ -8322,8 +8322,6 @@ run(function()
 		end
 		_graceTarget = nil
 		_graceUntil = 0
-		_fastAcqTime = 0
-		_fastAcqRes = nil
 		kaLastSrv = 0
 		animPeriod = NORMAL_SWORD_SWING_SPEED
 	end
@@ -8511,14 +8509,14 @@ run(function()
 						local selfpos = selfRoot.Position
 						local flatLV = selfRoot.CFrame.LookVector * Vector3.new(1, 0, 1)
 						local localfacing = flatLV.Magnitude > 0.001 and flatLV.Unit or selfRoot.CFrame.RightVector
-						local maxAngle = math.rad(AngleSlider.Value) / 2
+						local minDot = math.cos(math.rad(AngleSlider.Value) * 0.5)
 						local swingPlrs, attackPlrs = gatherTargets()
 
 						local function passesAngle(v)
 							if AngleSlider.Value >= 360 then return true end
 							local flat = (v.RootPart.Position - selfpos) * Vector3.new(1, 0, 1)
 							if flat.Magnitude <= 1.0 then return true end
-							return math.acos(math.clamp(localfacing:Dot(flat.Unit), -1, 1)) <= maxAngle
+							return localfacing:Dot(flat.Unit) >= minDot
 						end
 
 						local hasValidSwingTargets = false
@@ -9131,7 +9129,7 @@ run(function()
 		local camLV = gameCamera and gameCamera.CFrame.LookVector * Vector3.new(1, 0, 1)
 		local flatLV = (camLV and camLV.Magnitude > 0.001) and camLV or root.CFrame.LookVector * Vector3.new(1, 0, 1)
 		local facing = flatLV.Magnitude > 0.001 and flatLV.Unit or root.CFrame.RightVector
-		return math.acos(math.clamp(facing:Dot(flat.Unit), -1, 1)) <= math.rad(GrandAngle.Value) / 2
+		return facing:Dot(flat.Unit) >= math.cos(math.rad(GrandAngle.Value) * 0.5)
 	end
 
 	function GrandFire.resolveTarget()
@@ -9160,13 +9158,13 @@ run(function()
 		GrandFire.AcqTime = now
 		GrandFire.AcqRes = nil
 
+		-- usable() already runs wallBetween, so let AllPosition skip its own per-entity raycasts.
 		local list = entitylib.AllPosition({
 			Range = GrandAttackRange.Value,
-			Wallcheck = GrandTargets.Walls.Enabled or nil,
 			Part = 'RootPart',
 			Players = GrandTargets.Players.Enabled,
 			NPCs = GrandTargets.NPCs.Enabled,
-			Limit = 5,
+			Limit = 8,
 			Sort = sortmethods.Distance
 		})
 		for _, ent in list do
@@ -9239,7 +9237,8 @@ run(function()
 
 		GrandFire.Loop = task.spawn(function()
 			while GrandKillaura and GrandKillaura.Enabled do
-				runService.Heartbeat:Wait()
+				local dt = runService.Heartbeat:Wait()
+				if type(dt) ~= 'number' then dt = 1 / 60 end
 				GrandFire.watchHand()
 
 				local sword, meta = grandGetAttackData()
@@ -9247,8 +9246,7 @@ run(function()
 					GrandFire.Period = SwordTiming.resolvePeriod(meta)
 				end
 
-				local heartbeatDt = 1 / 60
-				local target = GrandFire.Period - math.min(heartbeatDt * 0.5, GrandFire.Period * 0.06)
+				local target = GrandFire.Period - math.min(dt * 0.5, GrandFire.Period * 0.06)
 				if (workspace:GetServerTimeNow() - GrandLastSrv) >= target then
 					pcall(GrandFire.attempt)
 				end
@@ -9408,7 +9406,7 @@ run(function()
 							local camLV = gameCamera and gameCamera.CFrame.LookVector * Vector3.new(1, 0, 1)
 							local flatLV = (camLV and camLV.Magnitude > 0.001) and camLV or entitylib.character.RootPart.CFrame.LookVector * Vector3.new(1, 0, 1)
 							local localfacing = flatLV.Magnitude > 0.001 and flatLV.Unit or entitylib.character.RootPart.CFrame.RightVector
-							local maxAngle = math.rad(GrandAngle.Value) / 2
+							local minDot = math.cos(math.rad(GrandAngle.Value) * 0.5)
 
 							local chosen = nil
 							local hasValidSwing = false
@@ -9418,7 +9416,7 @@ run(function()
 								local flat = delta * Vector3.new(1, 0, 1)
 								local passesAngle = true
 								if GrandAngle.Value < 360 and flat.Magnitude > 1.0 then
-									passesAngle = math.acos(math.clamp(localfacing:Dot(flat.Unit), -1, 1)) <= maxAngle
+									passesAngle = localfacing:Dot(flat.Unit) >= minDot
 								end
 								if not passesAngle then continue end
 
