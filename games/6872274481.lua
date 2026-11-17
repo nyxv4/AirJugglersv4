@@ -10226,12 +10226,12 @@ run(function()
 		ArcCheck.FilterType = Enum.RaycastFilterType.Exclude
 
 		local SwordTiming = {
-			SafeSpacing = 0.296,
-			HighSpacing = 0.2925,
-			HitFloor = 0.285,
-			GapFloor = 0.2915,
+			SafeSpacing = 0.2875,
+			HighSpacing = 0.2815,
+			HitFloor = 0.2755,
+			GapFloor = 0.2795,
 			ArrivalFloor = 0.2747,
-			CooldownCorrection = (0.017999999225139618 / 10) + 0.013412
+			CooldownCorrection = (0.017999999225139618 / 10) + 0.013412 + 0.005
 		}
 		local WeaponSpacing = {
 			[0.21] = 0.229,
@@ -11099,8 +11099,8 @@ run(function()
 									if Stock and HighHitreg.Enabled then
 										GapMin = math.max(GapMin + GhostDelay + Margin, AttackSpeed.Value)
 									end
-									local Band = (HighHitreg.Enabled and 10 / 34 or 10 / 33) * SpeedScale
-									local BandFloor = math.max(HighHitreg.Enabled and 10 / 35 or 10 / 34, CleanFloor) * SpeedScale
+									local Band = (HighHitreg.Enabled and 10 / 35.5 or 10 / 34) * SpeedScale
+									local BandFloor = math.max(HighHitreg.Enabled and 10 / 36 or 10 / 35, CleanFloor) * SpeedScale
 									local Frames = math.floor(Band / FrameTime)
 									if Stock and (math.ceil(Spacing / FrameTime) * FrameTime) > Band and (Frames * FrameTime) >= BandFloor then
 										Spacing = math.max((Frames * FrameTime) - (FrameTime * 0.5), GapFloor * SpeedScale)
@@ -11412,7 +11412,7 @@ run(function()
 									if GhostCount > (Recovery and 0 or 1) and tick() > GhostStep then
 										GhostStep = tick() + 1
 										GhostHold = tick() + (Recovery and HitregTiming.MarginHold or HighHitreg.Enabled and 2 or 10)
-										GhostDelay = math.min(GhostDelay + (Recovery and HitregTiming.RecoveryStep or HighHitreg.Enabled and 0.001 or 0.003), Recovery and HitregTiming.RecoveryCap or HighHitreg.Enabled and (10 / 34 - CleanFloor) or 0.1)
+										GhostDelay = math.min(GhostDelay + (Recovery and HitregTiming.RecoveryStep or HighHitreg.Enabled and 0.001 or 0.003), Recovery and HitregTiming.RecoveryCap or HighHitreg.Enabled and 0.0035 or 0.1)
 									end
 								elseif GhostDelay > 0 and tick() > GhostHold then
 									GhostHold = tick() + (Recovery and HitregTiming.MarginHold or HighHitreg.Enabled and 2 or 10)
