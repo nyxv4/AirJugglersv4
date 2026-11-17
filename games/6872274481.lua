@@ -10165,6 +10165,149 @@ run(function()
 		Tooltip = 'checks if attacking ina legit way',
 		Default = false
 	})
+
+	-- CatKillAura: third aura with its own acquisition, reusing this block's send path.
+	;(function()
+		local CatKillaura
+		local CatTargets
+		local CatRange
+		local CatAngle
+		local CatMaxTargets
+		local CatState = {
+			Period = 0.29583333333333334,
+			LastSrv = 0,
+			AcqTime = 0,
+			AcqRes = nil,
+			Loop = nil
+		}
+
+		local function catAlive(ent)
+			if not ent or not ent.RootPart then return false end
+			local char = ent.Character
+			if not char or not char.Parent then return false end
+			return ent.Health == nil or ent.Health > 0
+		end
+
+		local function catUsable(ent)
+			if not CatKillaura or not CatKillaura.Enabled then return false end
+			if not catAlive(ent) then return false end
+			local root = entitylib.character and entitylib.character.RootPart
+			if not root then return false end
+			local delta = ent.RootPart.Position - root.Position
+			if delta.Magnitude > CatRange.Value then return false end
+			if CatAngle.Value < 360 then
+				local flat = delta * Vector3.new(1, 0, 1)
+				if flat.Magnitude > 1.0 then
+					local lv = root.CFrame.LookVector * Vector3.new(1, 0, 1)
+					local facing = lv.Magnitude > 0.001 and lv.Unit or root.CFrame.RightVector
+					if facing:Dot(flat.Unit) < math.cos(math.rad(CatAngle.Value) * 0.5) then
+						return false
+					end
+				end
+			end
+			if CatTargets.Walls.Enabled and wallBetween(ent) then return false end
+			return true
+		end
+
+		local function catAcquire()
+			local now = tick()
+			if (now - CatState.AcqTime) >= 0.05 then
+				CatState.AcqTime = now
+				CatState.AcqRes = entitylib.AllPosition({
+					Range = CatRange.Value,
+					Part = 'RootPart',
+					Players = CatTargets.Players.Enabled,
+					NPCs = CatTargets.NPCs.Enabled,
+					Limit = math.max(1, math.floor(CatMaxTargets.Value)),
+					Sort = sortmethods.Distance
+				})
+			end
+			local list = CatState.AcqRes or {}
+			for _, ent in list do
+				if catUsable(ent) then return ent end
+			end
+			return nil
+		end
+
+		local function catStop()
+			if CatState.Loop then
+				pcall(task.cancel, CatState.Loop)
+				CatState.Loop = nil
+			end
+			CatState.AcqRes = nil
+			store.CatKillauraTarget = nil
+		end
+
+		CatKillaura = vape.Categories.Blatant:CreateModule({
+			Name = 'CatKillAura',
+			Tooltip = 'Attacks players around you with its own targeter.',
+			Function = function(callback)
+				if callback then
+					if not vape.Loading then
+						for _, name in {'Killaura', 'GrandKillaura'} do
+							local mod = vape.Modules and vape.Modules[name]
+							if mod and mod.Enabled then pcall(mod.Toggle, mod) end
+						end
+					end
+					catStop()
+					CatState.Period = 0.29583333333333334
+					CatState.LastSrv = workspace:GetServerTimeNow() - CatState.Period
+					CatState.AcqTime, CatState.AcqRes = 0, nil
+					CatState.Loop = task.spawn(function()
+						while CatKillaura.Enabled do
+							local dt = runService.Heartbeat:Wait()
+							if type(dt) ~= 'number' then dt = 1 / 60 end
+							local sword, meta = getAttackData()
+							local canAttack = sword ~= nil and meta ~= nil
+							if canAttack then
+								CatState.Period = SwordTiming.resolvePeriod(meta)
+							end
+							local target = catAcquire()
+							if target then
+								targetinfo.Targets[target] = tick() + 1
+								store.CatKillauraTarget = target
+							else
+								store.CatKillauraTarget = nil
+							end
+							if target and canAttack then
+								local gate = CatState.Period - math.min(dt * 0.5, CatState.Period * 0.06)
+								if (workspace:GetServerTimeNow() - CatState.LastSrv) >= gate then
+									CatState.LastSrv = workspace:GetServerTimeNow()
+									pcall(attemptFire, target, CatRange.Value)
+								end
+							end
+						end
+					end)
+				else
+					catStop()
+				end
+			end
+		})
+
+		CatTargets = CatKillaura:CreateTargets({
+			Players = true,
+			NPCs = true
+		})
+		CatRange = CatKillaura:CreateSlider({
+			Name = 'Range',
+			Min = 1,
+			Max = 24,
+			Default = 20,
+			Suffix = function(val) return val == 1 and 'stud' or 'studs' end
+		})
+		CatAngle = CatKillaura:CreateSlider({
+			Name = 'Max angle',
+			Min = 1,
+			Max = 360,
+			Default = 360
+		})
+		CatMaxTargets = CatKillaura:CreateSlider({
+			Name = 'Max targets',
+			Min = 1,
+			Max = 5,
+			Default = 3
+		})
+	end)()
 end)
 						
 run(function()
