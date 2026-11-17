@@ -10183,6 +10183,12 @@ run(function()
 		local HitRandom = Random.new()
 		local ContinueUntil, SwingGap = 0, 0.35
 		local CurrentSpacing = 0.296
+		local function statusActive(Character, Name)
+			local Util = bedwars.StatusEffectUtil
+			if not Util then return false end
+			local Ok, Active = pcall(Util.isActive, Util, Character, Name)
+			return Ok and Active == true
+		end
 		local LastEffect, LastAttack, OldSwing, SwingHook = 0, 0, nil, nil
 		local EffectSwing = 0
 		local Session
@@ -11020,14 +11026,14 @@ run(function()
 							if not Blocked and AFKCheck.Enabled and isAfk() then
 								Blocked = true
 							end
-							if not Blocked and GUI.Enabled and bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN) then
+							if not Blocked and GUI.Enabled and bedwars.AppController and bedwars.UILayers and bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN) then
 								Blocked = true
 							end
 							if not Blocked and Attackable.Enabled then
 								Blocked = not Entity.isAlive
 									or (LocalPlayer.Character:GetAttribute('StunnedUntilTime') or 0) > workspace:GetServerTimeNow()
 									or LocalPlayer.Character:FindFirstChild('elk') ~= nil
-									or bedwars.StatusEffectUtil:isActive(LocalPlayer.Character, 'frozen')
+									or statusActive(LocalPlayer.Character, 'frozen')
 							end
 
 							if not Blocked then
@@ -11073,7 +11079,7 @@ run(function()
 									UpdateSelfReference(os.clock(), SendPosition)
 									local LocalFacing = Root.CFrame.LookVector * FlatScale
 									local DisplayName = SwordMeta and SwordMeta.displayName or ''
-									local FuryMultiplier = bedwars.StatusEffectUtil:isActive(LocalPlayer.Character, 'fury_potion') and FuryScale or 1
+									local FuryMultiplier = statusActive(LocalPlayer.Character, 'fury_potion') and FuryScale or 1
 									local SwordSpeed = SwordMeta and SwordMeta.sword and SwordMeta.sword.attackSpeed or 0.3
 									local SelectedMode = (HitregModeSelect and HitregModeSelect.Value) or 'Stealth Mode'
 									local CalcMode = SelectedMode == 'Stealth Mode' and 'Dynamic' or SelectedMode
