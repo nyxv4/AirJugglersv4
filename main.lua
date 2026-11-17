@@ -249,8 +249,9 @@ local function finishLoading()
 	end)
 
 	if not shared.vapereload then
-		if not vape.Categories then return end
-		if vape.Categories.Main.Options['GUI bind indicator'].Enabled then
+		local mainCategory = vape.Categories and vape.Categories.Main
+		local bindIndicator = mainCategory and mainCategory.Options and mainCategory.Options['GUI bind indicator']
+		if bindIndicator and bindIndicator.Enabled then
 			vape:CreateNotification('[NYX] Finished Loading', 'wsg ' .. shared.NYXUser .. ' ' .. (vape.VapeButton and 'Press the button in the top right to open GUI' or 'Press ' .. table.concat(vape.Keybind, ' + '):upper() .. ' to open GUI'), 5)
 		end
 	end
