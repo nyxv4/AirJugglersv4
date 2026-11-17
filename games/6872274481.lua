@@ -8530,9 +8530,9 @@ run(function()
 	local function attemptFire()
 		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.5 then return false end
 
-		-- Let a projectile swap finish before swinging: a sword hit cancels the bolt.
-		local swapGap = math.max(0.12, netPing() + 0.06)
-		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < swapGap then
+		-- A sword hit sent right behind a bolt would cancel it; the bow stays raised until the
+		-- swap finishes, so a short fixed guard is enough. Ping is identical on both packets.
+		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.075 then
 			return false
 		end
 
@@ -8653,16 +8653,19 @@ run(function()
 				if kaNextFire == 0 then
 					kaNextFire = nowSrv
 				end
-				local early = math.min(SwordTiming.Dt * 0.45, kaPeriod * 0.05)
+				local early = math.min(1 / 240, kaPeriod * 0.02)
 				if nowSrv + early >= kaNextFire then
-					local sentBefore = SwordTiming.LastSendSrv
-					local ok, err = pcall(attemptFire)
+					local ok, result = pcall(attemptFire)
 					if not ok and (tick() - lastAttemptFireError) >= 2 then
 						lastAttemptFireError = tick()
-						warn('[Killaura] attemptFire error: ' .. tostring(err))
+						warn('[Killaura] attemptFire error: ' .. tostring(result))
 					end
-					-- Anchor the next send to the real send time so a missed attempt never queues a burst.
-					kaNextFire = (SwordTiming.LastSendSrv ~= sentBefore and SwordTiming.LastSendSrv or nowSrv) + kaPeriod
+					if ok and result then
+						-- Only a real send advances the schedule, and it keeps the schedule's
+						-- phase so slow frames cannot round every interval up by a frame.
+						kaNextFire = kaNextFire + kaPeriod
+						if kaNextFire < nowSrv then kaNextFire = nowSrv end
+					end
 				end
 			end
 		end)
@@ -9532,8 +9535,7 @@ run(function()
 
 	function GrandFire.attempt()
 		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.5 then return false end
-		local swapGap = math.max(0.12, netPing() + 0.06)
-		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < swapGap then return false end
+		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.075 then return false end
 		if tick() < GrandFire.ItemUntil then return false end
 
 		local v = GrandFire.resolveTarget()
@@ -9565,7 +9567,6 @@ run(function()
 		lastAnimTime = tick()
 
 		local srvNow = workspace:GetServerTimeNow()
-		GrandLastSrv = srvNow
 		store.attackReach = (dist * 100) // 1 / 100
 		store.attackReachUpdate = tick() + 1
 		if bedwars.SwordController then
@@ -9611,11 +9612,14 @@ run(function()
 					GrandLastSrv = (SwordTiming.LastSendSrv > 0 and SwordTiming.LastSendSrv) or nowSrv
 				end
 
-				local early = math.min(SwordTiming.Dt * 0.45, GrandFire.Period * 0.05)
+				local early = math.min(1 / 240, GrandFire.Period * 0.02)
 				if nowSrv + early >= GrandLastSrv + GrandFire.Period then
-					local sentBefore = SwordTiming.LastSendSrv
-					pcall(GrandFire.attempt)
-					GrandLastSrv = (SwordTiming.LastSendSrv ~= sentBefore and SwordTiming.LastSendSrv) or nowSrv
+					local ok, sent = pcall(GrandFire.attempt)
+					if ok and sent then
+						-- Only a real send advances the schedule, keeping the phase on slow frames.
+						GrandLastSrv = GrandLastSrv + GrandFire.Period
+						if GrandLastSrv < nowSrv then GrandLastSrv = nowSrv end
+					end
 				end
 			end
 		end)
