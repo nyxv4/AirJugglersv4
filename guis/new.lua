@@ -5061,12 +5061,14 @@ function mainapi:CreateSearch()
 				button.Parent = children
 				task.spawn(function()
 					repeat
-						for _, v2 in {'Text', 'TextColor3', 'BackgroundColor3'} do
-							button[v2] = v.Object[v2]
+						if clickgui.Visible then
+							for _, v2 in {'Text', 'TextColor3', 'BackgroundColor3'} do
+								button[v2] = v.Object[v2]
+							end
+							button.UIGradient.Color = v.Object.UIGradient.Color
+							button.UIGradient.Enabled = v.Object.UIGradient.Enabled
+							button.Dots.Dots.ImageColor3 = v.Object.Dots.Dots.ImageColor3
 						end
-						button.UIGradient.Color = v.Object.UIGradient.Color
-						button.UIGradient.Enabled = v.Object.UIGradient.Enabled
-						button.Dots.Dots.ImageColor3 = v.Object.Dots.Dots.ImageColor3
 						task.wait()
 					until not button.Parent
 				end)
@@ -5751,21 +5753,29 @@ function mainapi:SaveOptions(object, savedoptions)
 end
 
 function mainapi:Uninject()
-	mainapi:Save()
+	pcall(function()
+		mainapi:Save()
+	end)
 	mainapi.Loaded = nil
 	for _, v in self.Modules do
 		if v.Enabled then
-			v:Toggle()
+			pcall(function()
+				v:Toggle()
+			end)
 		end
 	end
 	for _, v in self.Legit.Modules do
 		if v.Enabled then
-			v:Toggle()
+			pcall(function()
+				v:Toggle()
+			end)
 		end
 	end
 	for _, v in self.Categories do
 		if v.Type == 'Overlay' and v.Button.Enabled then
-			v.Button:Toggle()
+			pcall(function()
+				v.Button:Toggle()
+			end)
 		end
 	end
 	for _, v in mainapi.Connections do
@@ -5778,8 +5788,10 @@ function mainapi:Uninject()
 		clickgui.Visible = false
 		mainapi:BlurCheck()
 	end
-	mainapi.gui:ClearAllChildren()
-	mainapi.gui:Destroy()
+	pcall(function()
+		mainapi.gui:ClearAllChildren()
+		mainapi.gui:Destroy()
+	end)
 	table.clear(mainapi.Libraries)
 	loopClean(mainapi)
 	shared.vape = nil

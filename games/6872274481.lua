@@ -2195,11 +2195,19 @@ run(function()
 
 	for _, event in {'MatchEndEvent', 'EntityDeathEvent', 'BedwarsBedBreak', 'BalloonPopped', 'AngelProgress', 'GrapplingHookFunctions'} do
 		if not vape.Connections then return end
-		bedwars.Client:WaitFor(event):andThen(function(connection)
-			vape:Clean(connection:Connect(function(...)
-				vapeEvents[event]:Fire(...)
-			end))
+		local waitOk, promise = pcall(function()
+			return bedwars.Client:WaitFor(event)
 		end)
+		if waitOk and promise and promise.andThen then
+			local chain = promise:andThen(function(connection)
+				vape:Clean(connection:Connect(function(...)
+					vapeEvents[event]:Fire(...)
+				end))
+			end)
+			if chain and chain.catch then
+				chain:catch(function() end)
+			end
+		end
 	end
 
 	local _dmgEventData = {entityInstance=nil,damage=nil,damageType=nil,fromPosition=nil,fromEntity=nil,knockbackMultiplier=nil,knockbackId=nil,disableDamageHighlight=nil}
