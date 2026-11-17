@@ -6004,10 +6004,8 @@ run(function()
 				local controller = bedwars.ProjectileController
 				if Hook and controller and controller.calculateImportantLaunchValues == Hook then
 					controller.calculateImportantLaunchValues = Old
-					Old, Hook = nil, nil
-				else
-					Hook = nil
 				end
+				Old, Hook = nil, nil
 				if CircleObject then
 					CircleObject.Visible = false
 				end
@@ -6035,10 +6033,6 @@ run(function()
 				UpdateCircle()
 			end))
 
-			if Hook then
-				return
-			end
-
 			local owlTagCache, owlTagAt = nil, 0
 			local function getOwlTags()
 				local now = tick()
@@ -6050,21 +6044,89 @@ run(function()
 			end
 
 			local function AimLaunchValues(self, LaunchData, WorldMeta, Origin, ShootPosition)
+				-- The game's own result is the ground truth for origin, gravity, speed and draw. Read
+				-- it first and only replace the direction once we have a solve that lands on the target.
+				local nativeOk, native = pcall(Old, self, LaunchData, WorldMeta, Origin, ShootPosition)
+				if not nativeOk then
+					native = nil
+				end
+
 				local LaunchPosition = ShootPosition
-				if not LaunchPosition then
+				if typeof(LaunchPosition) ~= 'Vector3' then
 					local ok, res = pcall(self.getLaunchPosition, self, Origin)
 					if not (ok and typeof(res) == 'Vector3') then
-						local ok2, res2 = pcall(self.getLaunchPosition, self, store.hand and store.hand.tool)
-						res = ok2 and res2 or nil
+						res = nil
 					end
-					if typeof(res) == 'Vector3' then
-						LaunchPosition = res
-					elseif entitylib.isAlive then
-						LaunchPosition = entitylib.character.RootPart.Position + Vector3.new(0, 2, 0)
+					if typeof(res) ~= 'Vector3' and entitylib.isAlive then
+						res = entitylib.character.RootPart.Position + Vector3.new(0, 2, 0)
 					end
+					LaunchPosition = res
 				end
-				if not LaunchPosition then
-					return
+				if typeof(LaunchPosition) ~= 'Vector3' then
+					return nil
+				end
+
+				local ProjectileName = tostring(LaunchData.projectile or '')
+				if ProjectileName:find('splash_potion', 1, true) then
+					if not Potions.Enabled then
+						return nil
+					end
+				elseif not OtherProjectiles.Enabled and not ProjectileName:find('arrow', 1, true) and not (UseUmeko.Enabled and ProjectileName:find('^ninja_chakram')) then
+					return nil
+				end
+
+				local BlacklistName = (ProjectileName == 'glue_trap' or ProjectileName == 'glue_projectile') and 'gloop' or ProjectileName
+				if table.find(Blacklist.ListEnabled or {}, BlacklistName) then
+					return nil
+				end
+
+				local metaOk, metaRes = pcall(LaunchData.getProjectileMeta, LaunchData)
+				local ProjectileMeta = metaOk and type(metaRes) == 'table' and metaRes or (bedwars.ProjectileMeta and bedwars.ProjectileMeta[ProjectileName])
+				if not ProjectileMeta then
+					return nil
+				end
+
+				local Lifetime = WorldMeta and (ProjectileMeta.predictionLifetimeSec or ProjectileMeta.lifetimeSec or 3) or (ProjectileMeta.lifetimeSec or 3)
+				local Gravity = (native and tonumber(native.gravitationalAcceleration)) or ((tonumber(ProjectileMeta.gravitationalAcceleration) or 196.2) * (tonumber(LaunchData.gravityMultiplier) or 1))
+				if Gravity < 1 then
+					Gravity = 0
+				end
+
+				local Tool = store.hand and store.hand.tool
+				local ToolMeta = Tool and bedwars.ItemMeta and bedwars.ItemMeta[Tool.Name]
+				local SourceMeta = ToolMeta and ToolMeta.projectileSource
+				local BaseSpeed = tonumber(ProjectileMeta.launchVelocity) or 100
+				local MinScalar = tonumber(SourceMeta and SourceMeta.minStrengthScalar) or 1
+				local MaxDraw = tonumber(SourceMeta and SourceMeta.maxStrengthChargeSec)
+					or tonumber(SourceMeta and SourceMeta.maxDrawDurationSeconds)
+					or (ProjectileName:find('arrow', 1, true) and 0.65 or 0.8)
+
+				local ProjectileSpeed, DrawDuration
+				if AutoCharge.Enabled or not Aim.Enabled then
+					ProjectileSpeed, DrawDuration = BaseSpeed, MaxDraw
+				else
+					local NativeSpeed = native and typeof(native.initialVelocity) == 'Vector3' and native.initialVelocity.Magnitude or 0
+					if NativeSpeed > 0 then
+						ProjectileSpeed = NativeSpeed
+					else
+						local LiveDraw = tonumber(LaunchData.drawDurationSeconds) or 0
+						local DrawPct = MaxDraw > 0 and math.clamp(LiveDraw / MaxDraw, 0, 1) or 0
+						ProjectileSpeed = BaseSpeed * (MinScalar + (1 - MinScalar) * DrawPct)
+					end
+					DrawDuration = (native and tonumber(native.drawDurationSeconds)) or tonumber(LaunchData.drawDurationSeconds) or 0
+				end
+				if not ProjectileSpeed or ProjectileSpeed <= 0 then
+					return nil
+				end
+
+				local SpawnOffset = ProjectileName == 'owl_projectile' and Vector3.zero or (typeof(LaunchData.fromPositionOffset) == 'Vector3' and LaunchData.fromPositionOffset or Vector3.zero)
+				local OffsetPosition = (native and typeof(native.positionFrom) == 'Vector3' and native.positionFrom) or (LaunchPosition + SpawnOffset)
+
+				local BowConstants = bedwars.BowConstantsTable or {}
+				local Relative = SourceMeta and SourceMeta.relativeOverride
+				local RelX, RelY, RelZ = BowConstants.RelX or 0.8, BowConstants.RelY or -0.6, BowConstants.RelZ or 0
+				if type(Relative) == 'table' then
+					RelX, RelY, RelZ = Relative.relX or 0, Relative.relY or 0, Relative.relZ or 0
 				end
 
 				local map = workspace:FindFirstChild('Map')
@@ -6072,39 +6134,6 @@ run(function()
 					ArcCheck.FilterDescendantsInstances = {map}
 				end
 
-				local ProjectileName = tostring(LaunchData.projectile or '')
-				if ProjectileName:find('splash_potion', 1, true) then
-					if not Potions.Enabled then
-						return
-					end
-				elseif not OtherProjectiles.Enabled and not ProjectileName:find('arrow', 1, true) and not (UseUmeko.Enabled and ProjectileName:find('^ninja_chakram')) then
-					return
-				end
-
-				local BlacklistName = (ProjectileName == 'glue_trap' or ProjectileName == 'glue_projectile') and 'gloop' or ProjectileName
-				if table.find(Blacklist.ListEnabled or {}, BlacklistName) then
-					return
-				end
-
-				local metaOk, metaRes = pcall(LaunchData.getProjectileMeta, LaunchData)
-				local ProjectileMeta = metaOk and type(metaRes) == 'table' and metaRes or (bedwars.ProjectileMeta and bedwars.ProjectileMeta[ProjectileName])
-				if not ProjectileMeta then
-					return
-				end
-				local Lifetime = WorldMeta and (ProjectileMeta.predictionLifetimeSec or ProjectileMeta.lifetimeSec or 3) or (ProjectileMeta.lifetimeSec or 3)
-				local Gravity = (tonumber(ProjectileMeta.gravitationalAcceleration) or 196.2) * (LaunchData.gravityMultiplier or 1)
-				if Gravity < 1 then
-					Gravity = 0
-				end
-				local ProjectileSpeed = (ProjectileMeta.launchVelocity or 100) * ((AutoCharge.Enabled or not Aim.Enabled) and 1 or (LaunchData.velocityMultiplier or 1))
-				local OffsetPosition = LaunchPosition + (ProjectileName == 'owl_projectile' and Vector3.zero or (LaunchData.fromPositionOffset or Vector3.zero))
-				local Tool = store.hand and store.hand.tool
-				local AutoChargeDuration = LaunchData.drawDurationSeconds
-				if AutoCharge.Enabled then
-					local handMeta = Tool and bedwars.ItemMeta and bedwars.ItemMeta[Tool.Name]
-					local sourceMeta = handMeta and handMeta.projectileSource
-					AutoChargeDuration = tonumber(sourceMeta and (sourceMeta.maxStrengthChargeSec or sourceMeta.maxDrawDurationSeconds)) or 5
-				end
 				local PartName = PartOption.Value == 'Dynamic' and (IsHeadshotProjectile(Tool and Tool.Name) and 'Head' or 'RootPart') or PartOption.Value
 
 				local function GetLaunchValues(Ent)
@@ -6134,62 +6163,53 @@ run(function()
 
 					local AimPart = GetTargetPart(Ent, PartName)
 					local Velocity = ProjectileName == 'telepearl' and Vector3.zero or AimPart.AssemblyLinearVelocity
+					if Horizontal.Value ~= 1 or Vertical.Value ~= 1 then
+						Velocity = Vector3.new(Velocity.X * Horizontal.Value, Velocity.Y * Vertical.Value, Velocity.Z * Horizontal.Value)
+					end
 					local EntRootVelocity = Ent.RootPart.AssemblyLinearVelocity
 					local Airborne = (Ent.Humanoid and Ent.Humanoid.FloorMaterial == Enum.Material.Air) or math.abs(EntRootVelocity.Y) > 0.01
 					local JumpVelocity = Ent.Jumping and 42.6 or nil
+					local AimTarget = AimPart.Position
 
-					local AimPosition, _, TravelTime = prediction.SolveTrajectory(
+					-- The game spawns the projectile at the hand offset from positionFrom, not at
+					-- positionFrom itself. Solve, move the origin to the real spawn point, re-solve,
+					-- and shift the result back so the returned direction accounts for the offset.
+					local calc, flight
+					calc, _, flight = prediction.SolveTrajectory(
 						OffsetPosition, ProjectileSpeed, Gravity,
-						AimPart.Position, Velocity,
+						AimTarget, Velocity,
 						PlayerGravity, Ent.HipHeight, JumpVelocity,
 						ArcCheck, Airborne,
 						Ent.RootPart.Position, Ent.RootPart,
 						nil, true
 					)
-
-					if AimPosition and TravelTime and (Horizontal.Value ~= 1 or Vertical.Value ~= 1) then
-						local Rise = (Velocity.Y * TravelTime) - (PlayerGravity * TravelTime * TravelTime * 0.5)
-						local Lead = Vector3.new(
-							Velocity.X * TravelTime * (Horizontal.Value - 1),
-							Rise * (Vertical.Value - 1),
-							Velocity.Z * TravelTime * (Horizontal.Value - 1)
-						)
-						local AdjustedPosition, _, AdjustedTime = prediction.SolveTrajectory(
-							OffsetPosition, ProjectileSpeed, Gravity,
-							AimPart.Position + Lead, Velocity,
+					for _ = 1, 2 do
+						if not calc or not flight then break end
+						local Spawn = prediction.GetSpawnPosition(OffsetPosition, calc, RelX, RelY, RelZ)
+						local corrected, _, correctedTime = prediction.SolveTrajectory(
+							Spawn, ProjectileSpeed, Gravity,
+							AimTarget, Velocity,
 							PlayerGravity, Ent.HipHeight, JumpVelocity,
 							ArcCheck, Airborne,
 							Ent.RootPart.Position, Ent.RootPart,
 							nil, true
 						)
-						if AdjustedPosition then
-							AimPosition, TravelTime = AdjustedPosition, AdjustedTime or TravelTime
-						end
+						if not corrected or not correctedTime then break end
+						calc = OffsetPosition + (corrected - Spawn)
+						flight = correctedTime
 					end
 
-					if not AimPosition or not TravelTime or TravelTime > Lifetime then
+					if not calc or not flight or flight > Lifetime then
 						return nil
 					end
 
-					local LaunchVelocity = (AimPosition - OffsetPosition).Unit * ProjectileSpeed
-
-					if Targets.Walls.Enabled and TravelTime then
-						if not prediction.IsTrajectoryClear(OffsetPosition, LaunchVelocity, Gravity, TravelTime, ArcCheck) then
-							return nil
-						end
-					end
-
-					local Values = {
-						initialVelocity = LaunchVelocity,
+					return {
+						initialVelocity = CFrame.lookAt(OffsetPosition, calc).LookVector * ProjectileSpeed,
 						positionFrom = OffsetPosition,
 						deltaT = Lifetime,
 						gravitationalAcceleration = Gravity,
-						drawDurationSeconds = AutoChargeDuration
+						drawDurationSeconds = DrawDuration
 					}
-					if AutoCharge.Enabled then
-						Values.drawDurationSec = AutoChargeDuration
-					end
-					return Values
 				end
 
 				local Values, Attempts, Started = nil, 0, os.clock()
@@ -6198,6 +6218,7 @@ run(function()
 					Range = FOV.Value,
 					Players = Targets.Players.Enabled,
 					NPCs = Targets.NPCs and Targets.NPCs.Enabled or false,
+					Wallcheck = Targets.Walls.Enabled or nil,
 					Origin = entitylib.isAlive and (ShootPosition or entitylib.character.RootPart.Position) or Vector3.zero,
 					MouseOrigin = GetMouseOrigin(),
 					Sort = sortmethods[Sort.Value],
@@ -6225,24 +6246,48 @@ run(function()
 				end
 			end
 
-			local controller = bedwars.ProjectileController
-			if not controller or type(controller.calculateImportantLaunchValues) ~= 'function' then
-				ProjectileAimbot:SetEnabled(false)
-				notif('ProjectileAimbot', 'this game build no longer exposes calculateImportantLaunchValues, use SilentAim instead', 8)
-				return
-			end
-			Old = controller.calculateImportantLaunchValues
+			local hookErrorAt = 0
 			Hook = function(self, LaunchData, WorldMeta, Origin, ShootPosition, ...)
 				if ProjectileAimbot.Enabled then
 					local Success, Values = pcall(AimLaunchValues, self, LaunchData, WorldMeta, Origin, ShootPosition)
 					if Success and Values then
 						return Values
 					end
+					if not Success and (tick() - hookErrorAt) >= 3 then
+						hookErrorAt = tick()
+						warn('[ProjectileAimbot] ' .. tostring(Values))
+					end
 				end
-
 				return Old(self, LaunchData, WorldMeta, Origin, ShootPosition, ...)
 			end
-			controller.calculateImportantLaunchValues = Hook
+
+			-- A profile can enable this while bedwars is still loading, so keep trying for the
+			-- controller instead of turning the module off on the first miss.
+			local function installHook()
+				local controller = bedwars.ProjectileController
+				if not controller or type(controller.calculateImportantLaunchValues) ~= 'function' then
+					return false
+				end
+				if controller.calculateImportantLaunchValues ~= Hook then
+					Old = controller.calculateImportantLaunchValues
+					controller.calculateImportantLaunchValues = Hook
+				end
+				return true
+			end
+
+			if not installHook() then
+				task.spawn(function()
+					local deadline = tick() + 20
+					repeat
+						task.wait(0.25)
+					until not ProjectileAimbot.Enabled or installHook() or tick() > deadline
+					local controller = bedwars.ProjectileController
+					if ProjectileAimbot.Enabled and not (controller and controller.calculateImportantLaunchValues == Hook) then
+						ProjectileAimbot:SetEnabled(false)
+						notif('ProjectileAimbot', 'this game build no longer exposes calculateImportantLaunchValues, use SilentAim instead', 8)
+					end
+				end)
+			end
 		end,
 		Tooltip = 'Silently adjusts your aim towards the enemy'
 	})
