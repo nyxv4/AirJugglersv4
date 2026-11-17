@@ -10989,14 +10989,11 @@ run(function()
 
 					local BoxData = {}
 					local FrameCount, FrameWindow, FrameTime = 0, tick(), HighHitreg.Enabled and RunService.Heartbeat:Wait() or 1 / 240
-					local FrameStep = FrameTime
+					local PreciseSpinCap = 0.05
 					if not Killaura.Enabled or Session ~= Current then
 						endSession()
 						return
 					end
-					Killaura:Clean(RunService.Heartbeat:Connect(function(Delta)
-						FrameStep = Delta
-					end))
 
 					local Entities, ScanClock = {}, 0
 					local function Rescan()
@@ -11106,7 +11103,6 @@ run(function()
 										Spacing = math.max((Frames * FrameTime) - (FrameTime * 0.5), GapFloor * SpeedScale)
 									end
 									CurrentSpacing = math.max(Spacing, GapMin)
-									local Precise = Stock and HighHitreg.Enabled and Hitreg.Value ~= 'Burst' and not Quantized and (math.ceil(Spacing / FrameTime) * FrameTime) > Band
 									local Reach = getReach(Sword.tool)
 									local RangeLimit = GetRangeLimit(Reach)
 
@@ -11196,7 +11192,7 @@ run(function()
 											Deadline = math.max(Deadline, math.min(HitDeadline, LastHit + HitDelay + HitregTiming.HoldCap))
 										end
 										local Remaining = Deadline - tick()
-										if Precise and not Waiting and Remaining > 0 and Remaining < math.min(FrameTime, FrameStep, 0.25) then
+										if not Waiting and Remaining > 0 and Remaining < PreciseSpinCap then
 											local Finish = os.clock() + Remaining
 											repeat until os.clock() >= Finish
 										end
