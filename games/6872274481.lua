@@ -6596,6 +6596,7 @@ run(function()
 	local SERVER_FLOOR = 0.292
 	local SERVER_REACH = 14.399
 	local NORMAL_SWORD_SWING_SPEED = 0.35 -- Standard in-game sword swing speed, NEVER changes
+	local AURA_SWING_INTERVAL = 0.5 -- cosmetic only: how often the visible swing replays, hits keep their own cadence
 	local kaPeriod = HIT_PERIOD
 	local animPeriod = NORMAL_SWORD_SWING_SPEED -- Animation is ALWAYS decoupled from hit timing
 	local kaLastSrv = 0 -- scheduled server time of the last accepted hit
@@ -8185,8 +8186,8 @@ run(function()
 		end
 		local srvNow = workspace:GetServerTimeNow()
 
-		-- The swing runs at the sword's own speed, not at the send rate.
-		if tick() - lastSwingAnim >= NORMAL_SWORD_SWING_SPEED then
+		-- Cosmetic swing runs slower than the hits on purpose; sends are untouched.
+		if tick() - lastSwingAnim >= AURA_SWING_INTERVAL then
 			playAuraSwing(meta, sword)
 			lastSwingAnim = tick()
 			lastAnimTime = lastSwingAnim
@@ -9147,8 +9148,8 @@ run(function()
 
 		local srvNow = workspace:GetServerTimeNow()
 
-		-- The swing runs at the sword's own speed, not at the send rate.
-		if tick() - lastSwingAnim >= NORMAL_SWORD_SWING_SPEED then
+		-- Cosmetic swing runs slower than the hits on purpose; sends are untouched.
+		if tick() - lastSwingAnim >= AURA_SWING_INTERVAL then
 			playAuraSwing(meta, sword)
 			lastSwingAnim = tick()
 			lastAnimTime = lastSwingAnim
