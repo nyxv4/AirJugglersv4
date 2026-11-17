@@ -1413,6 +1413,7 @@ components = {
 	Targets = function(optionsettings, children, api)
 		local optionapi = {
 			Type = 'Targets',
+			Priority = {Value = 'Distance'},
 			Index = getTableSize(api.Options)
 		}
 		
@@ -2206,9 +2207,34 @@ components = {
 		
 		return optionapi
 	end,
+	Group = function(optionsettings, children, api)
+		local optionapi = components.Toggle(optionsettings, children, api)
+		for _, name in {'Toggle', 'Slider', 'TwoSlider', 'Dropdown', 'ColorSlider', 'TextBox', 'TextList', 'Button', 'Group', 'MultiDropdown'} do
+			optionapi['Create'..name] = function(_, childsettings)
+				local settings = table.clone(childsettings)
+				settings.Darker = true
+				return components[name](settings, children, api)
+			end
+		end
+		return optionapi
+	end,
+	MultiDropdown = function(optionsettings, children, api)
+		local settings = table.clone(optionsettings)
+		local selected = settings.Default or {}
+		settings.Default = settings.List or {}
+		local optionapi = components.TextList(settings, children, api)
+		optionapi.Default = selected
+		optionapi.ListEnabled = table.clone(selected)
+		optionapi.Has = function(self, value)
+			return table.find(self.ListEnabled, value) ~= nil
+		end
+		optionapi:ChangeValue()
+		return optionapi
+	end,
 	Toggle = function(optionsettings, children, api)
 		local optionapi = {
 			Type = 'Toggle',
+			Name = optionsettings.Name,
 			Enabled = false,
 			Default = optionsettings.Default or false,
 			Index = getTableSize(api.Options)
