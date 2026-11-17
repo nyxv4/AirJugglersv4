@@ -4721,7 +4721,7 @@ run(function()
 			if callback then
 				local paMod = vape.Modules and vape.Modules['ProjectileAimbot']
 				if paMod and paMod.Enabled then
-					paMod:SetEnabled(false)
+					pcall(paMod.Toggle, paMod)
 				end
 				if SAFOVCircle and SAFOVCircle.Enabled then
 					runFOVCircle(true)
@@ -6388,7 +6388,9 @@ run(function()
 
 			local silentAim = vape.Modules and vape.Modules['SilentAim']
 			if silentAim and silentAim.Enabled then
-				silentAim:SetEnabled(false)
+				-- The module API only has Toggle; calling a missing SetEnabled here threw before the
+				-- hooks below were installed, which left the module enabled and completely inert.
+				pcall(silentAim.Toggle, silentAim)
 				notif('ProjectileAimbot', 'turned off SilentAim, they cant both run at once gng', 4)
 			end
 
@@ -6629,6 +6631,11 @@ run(function()
 			end
 			-- The packet path works on its own; the launch hook only refines it when present.
 			installShotHook()
+			if PADebug and PADebug.Enabled then
+				task.delay(0.5, function()
+					paLog('install', 'launch hook ' .. tostring(Hook ~= nil) .. ' | packet hook ' .. tostring(paOldNamecall ~= nil) .. ' | local projectile ' .. tostring(paLocalOld ~= nil))
+				end)
+			end
 		end,
 		Tooltip = 'Silently adjusts your aim towards the enemy'
 	})
@@ -8751,7 +8758,7 @@ run(function()
 			if callback then
 				if not vape.Loading then
 					local grandMod = vape.Modules and vape.Modules['GrandKillaura']
-					if grandMod and grandMod.Enabled then grandMod:SetEnabled(false) end
+					if grandMod and grandMod.Enabled then pcall(grandMod.Toggle, grandMod) end
 				end
 				lastAttackTime = 0
 				lastTargetTime = 0
@@ -9609,7 +9616,7 @@ run(function()
 			if callback then
 				if not vape.Loading then
 					local kaMod = vape.Modules and vape.Modules['Killaura']
-					if kaMod and kaMod.Enabled then kaMod:SetEnabled(false) end
+					if kaMod and kaMod.Enabled then pcall(kaMod.Toggle, kaMod) end
 				end
 				GrandAttacking = false
 				GrandLastAnimTime = 0
