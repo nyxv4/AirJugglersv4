@@ -6003,16 +6003,24 @@ run(function()
 	-- redirected as well. Only the direction is replaced: the speed, spawn position and
 	-- draw the game computed stay untouched, which is the shot the server accepts.
 	local paOldNamecall
-	local function paSolveShot(shotArgs)
+	local paLocalOld
+	local paDebugAt = {}
+
+	local function paLog(tag, text)
+		if not PADebug or not PADebug.Enabled then
+			return
+		end
+		local now = tick()
+		if now - (paDebugAt[tag] or 0) < 0.5 then
+			return
+		end
+		paDebugAt[tag] = now
+		print('[ProjectileAimbot] ' .. tostring(text))
+	end
+
+	local function paSolve(Tool, ProjectileName, PositionFrom, NativeVelocity)
 		if not ProjectileAimbot or not ProjectileAimbot.Enabled then
 			return nil
-		end
-		local Tool = shotArgs[1]
-		local ProjectileName = shotArgs[3]
-		local PositionFrom = shotArgs[4]
-		local NativeVelocity = shotArgs[6]
-		if typeof(PositionFrom) ~= 'Vector3' then
-			PositionFrom = shotArgs[5]
 		end
 		if typeof(PositionFrom) ~= 'Vector3' or typeof(NativeVelocity) ~= 'Vector3' or type(ProjectileName) ~= 'string' then
 			return nil
@@ -6157,8 +6165,49 @@ run(function()
 		end
 	end
 
+	-- The packet only tells the server where the shot went; the hit itself is reported by the
+	-- shooter's own local projectile, so that one has to fly the aimed path as well.
+	local function paSolveShot(shotArgs)
+		local PositionFrom = shotArgs[4]
+		if typeof(PositionFrom) ~= 'Vector3' then
+			PositionFrom = shotArgs[5]
+		end
+		return paSolve(shotArgs[1], shotArgs[3], PositionFrom, shotArgs[6])
+	end
+
+	local function paLocalProjectile(...)
+		local args = table.pack(...)
+		-- Called either with the controller as self or with raw arguments; find the shape by
+		-- where positionFrom sits instead of assuming one convention.
+		local Offset
+		if typeof(args[4]) == 'Vector3' then
+			Offset = 0
+		elseif typeof(args[5]) == 'Vector3' then
+			Offset = 1
+		end
+		if Offset then
+			local ProjectileName = args[3 + Offset]
+			local PositionFrom = args[4 + Offset]
+			local Velocity = args[6 + Offset]
+			if ProjectileAimbot and ProjectileAimbot.Enabled and type(ProjectileName) == 'string'
+				and typeof(Velocity) == 'Vector3' and Velocity.Magnitude > 0 then
+				local ok, AimVelocity = pcall(paSolve, store.hand and store.hand.tool, ProjectileName, PositionFrom, Velocity)
+				if ok and typeof(AimVelocity) == 'Vector3' and AimVelocity.Magnitude > 0 then
+					args[6 + Offset] = AimVelocity.Unit * Velocity.Magnitude
+					paLog('local', 'local shot aimed: ' .. ProjectileName)
+				end
+			end
+		end
+		return paLocalOld(table.unpack(args, 1, args.n))
+	end
+
 	local function installShotHook()
-		if paOldNamecall then
+		local controller = bedwars.ProjectileController
+		if not paLocalOld and controller and type(controller.createLocalProjectile) == 'function' then
+			paLocalOld = controller.createLocalProjectile
+			controller.createLocalProjectile = paLocalProjectile
+		end
+		if paOldNamecall or not hookmetamethod then
 			return
 		end
 		local wrap = newcclosure or function(f) return f end
@@ -6171,6 +6220,7 @@ run(function()
 					local ok, Velocity = pcall(paSolveShot, packed)
 					if ok and typeof(Velocity) == 'Vector3' and Velocity.Magnitude > 0 then
 						packed[6] = Velocity
+						paLog('packet', 'shot packet aimed: ' .. tostring(packed[3]))
 						return paOldNamecall(remote, table.unpack(packed, 1, packed.n))
 					end
 				end
@@ -6442,6 +6492,7 @@ run(function()
 				if ProjectileAimbot.Enabled then
 					local Success, Values = pcall(AimLaunchValues, self, LaunchData, WorldMeta, Origin, ShootPosition)
 					if Success and Values then
+						paLog('launch', 'launch values aimed: ' .. tostring(LaunchData and LaunchData.projectile))
 						return Values
 					end
 					if not Success and (tick() - hookErrorAt) >= 3 then
@@ -6471,6 +6522,7 @@ run(function()
 					local deadline = tick() + 20
 					repeat
 						task.wait(0.25)
+						installShotHook()
 					until not ProjectileAimbot.Enabled or installHook() or tick() > deadline
 				end)
 			end
@@ -6517,6 +6569,11 @@ run(function()
 		Default = 1000,
 		Suffix = 'studs',
 		Tooltip = 'Maximum enemy distance from you'
+	})
+
+	PADebug = ProjectileAimbot:CreateToggle({
+		Name = 'Debug',
+		Tooltip = 'Prints to the console which projectile layer aimed a shot (local projectile, launch values, or packet)'
 	})
 
 	ProjectileAimbot:CreateToggle({
@@ -8433,7 +8490,7 @@ run(function()
 		return resolved
 	end
 
-	local function attemptFire()
+	local function attemptFire(forcedTarget, rangeLimit)
 		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
 
 		-- A sword hit sent right behind a bolt would cancel it; the bow stays raised until the
@@ -8442,7 +8499,7 @@ run(function()
 			return false
 		end
 
-		local v = resolveTarget()
+		local v = forcedTarget or resolveTarget()
 		if not v then return false end
 
 		local sword, meta = getAttackData()
@@ -8465,7 +8522,7 @@ run(function()
 		local targetPos = v.RootPart and v.RootPart.Position
 		if not selfPos or not targetPos then return false end
 		local dist = (targetPos - selfPos).Magnitude
-		if dist > AttackRange.Value + 0 then return false end
+		if dist > (rangeLimit or AttackRange.Value) + 0 then return false end
 
 		if AirHit and AirHit.Enabled and AirHitsChance and AirHitsChance.Value < 100 then
 			local hum = tchar:FindFirstChildOfClass('Humanoid')
@@ -9244,7 +9301,6 @@ run(function()
 	local GrandAnimTween
 	local GrandArmC0
 	local GrandAnimActive = false
-	local GRAND_SERVER_REACH = 14.399
 	local GRAND_HIT_PERIOD = 0.29583333333333334 -- fallback only; replaced per weapon each frame
 
 	function GrandFire.projectileInHand()
@@ -9312,52 +9368,6 @@ run(function()
 		end
 
 		return sword, meta
-	end
-
-	local function grandWeaponInstance(sword)
-		local weaponInst = sword.tool
-		pcall(function()
-			local inv = replicatedStorage:FindFirstChild('Inventories')
-			local mine = inv and inv:FindFirstChild(lplr.Name)
-			local w = mine and mine:FindFirstChild(sword.tool.Name)
-			if w then weaponInst = w end
-		end)
-		return weaponInst
-	end
-
-	local function grandFireAttack(weaponInst, entityInstance, selfPos, targetPos)
-		if not AttackRemote then
-			pcall(function()
-				local _remotes = getgenv().remotes or remotes
-				AttackRemote = bedwars.Client:Get(_remotes.AttackEntity).instance
-			end)
-		end
-		if not AttackRemote then return false end
-
-		local delta = (targetPos - selfPos).Magnitude
-		if delta < 0.01 then return false end
-
-		local weaponMeta = bedwars.ItemMeta[weaponInst.Name]
-		local reach = ((weaponMeta and weaponMeta.sword and weaponMeta.sword.attackRange) or GRAND_SERVER_REACH) - 0.001
-		local dir = CFrame.lookAt(selfPos, targetPos).LookVector
-		local pos = selfPos + dir * math.max(delta - reach, 0)
-
-		local ok = pcall(function()
-			AttackRemote:FireServer({
-				weapon = weaponInst,
-				chargedAttack = {chargeRatio = 0},
-				entityInstance = entityInstance,
-				validate = {
-					raycast = {
-						cameraPosition = {value = pos},
-						cursorDirection = {value = dir}
-					},
-					targetPosition = {value = targetPos},
-					selfPosition = {value = pos}
-				}
-			})
-		end)
-		return ok
 	end
 
 	function GrandFire.aliveTarget(v)
@@ -9430,49 +9440,20 @@ run(function()
 	end
 
 	function GrandFire.attempt()
-		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
-		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.075 then return false end
 		if tick() < GrandFire.ItemUntil then return false end
 
 		local v = GrandFire.resolveTarget()
 		if not v then return false end
+		if not grandGetAttackData() then return false end
 
-		local sword, meta = grandGetAttackData()
-		if not sword or not meta then return false end
-
-		local tchar = v.Character
-		if not tchar or not tchar.PrimaryPart then return false end
-		local selfPos = entitylib.character.RootPart.Position
-		local targetPos = tchar.PrimaryPart.Position
-		local dist = (targetPos - selfPos).Magnitude
-		if dist > GrandAttackRange.Value then return false end
-
-		if sword.tool.Name:find('summoner_claw') then
-			pcall(function() KaidaController:request(tchar) end)
-			return false
-		end
-
-		if not grandFireAttack(grandWeaponInstance(sword), tchar, selfPos, targetPos) then
-			return false
-		end
+		-- Same send Killaura uses, so the server sees the identical packet. Only the target
+		-- acquisition above is Grand's own.
+		if not attemptFire(v, GrandAttackRange.Value) then return false end
 
 		local srvNow = workspace:GetServerTimeNow()
-
-		-- Cosmetic swing runs slower than the hits on purpose; sends are untouched.
-		if tick() - lastSwingAnim >= AURA_SWING_INTERVAL then
-			playAuraSwing(meta, sword)
-			lastSwingAnim = tick()
-			lastAnimTime = lastSwingAnim
-		end
-
 		GrandLastSrv = GrandLastSrv + GrandFire.Period
 		if GrandLastSrv < srvNow then
 			GrandLastSrv = srvNow
-		end
-		store.attackReach = (dist * 100) // 1 / 100
-		store.attackReachUpdate = tick() + 1
-		if bedwars.SwordController then
-			bedwars.SwordController.lastAttack = srvNow
 		end
 		return true
 	end
