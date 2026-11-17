@@ -7984,18 +7984,30 @@ run(function()
 		end
 	end
 
+	local function fastHitsAuraTarget()
+		if Killaura and Killaura.Enabled then
+			return store.KillauraTarget, true
+		end
+		local grandMod = vape.Modules and vape.Modules['GrandKillaura']
+		if grandMod and grandMod.Enabled then
+			return store.GrandKillauraTarget, false
+		end
+		return nil, false
+	end
+
 	local function doFastHits()
 		if not FastHits or not FastHits.Enabled then return end
-		if not Killaura or not Killaura.Enabled then return end
 		if not entitylib.isAlive then return end
 
 		local selfRoot = entitylib.character and entitylib.character.RootPart
 		if not selfRoot then return end
 
-		local ent = store.KillauraTarget
+		local ent, isKa = fastHitsAuraTarget()
 		if not ent or not ent.RootPart then return end
-		if not fhInAngle(ent) then return end
-		if (ent.RootPart.Position - selfRoot.Position).Magnitude > SwingRange.Value then return end
+		if isKa then
+			if not fhInAngle(ent) then return end
+			if (ent.RootPart.Position - selfRoot.Position).Magnitude > SwingRange.Value then return end
+		end
 
 		if not FastHitPending then
 			if LegitSwitch and LegitSwitch.Enabled then
@@ -8016,7 +8028,7 @@ run(function()
 		FastHitPending = false
 
 		autoShootLoop = task.spawn(function()
-			while Killaura and Killaura.Enabled and FastHits and FastHits.Enabled do
+			while FastHits and FastHits.Enabled and ((Killaura and Killaura.Enabled) or (vape.Modules and vape.Modules['GrandKillaura'] and vape.Modules['GrandKillaura'].Enabled)) do
 				pcall(doFastHits)
 				task.wait(0.05)
 			end
@@ -8779,7 +8791,7 @@ run(function()
 	FastHits = Killaura:CreateToggle({
 		Name = 'Fast Hits',
 		Default = false,
-		Tooltip = 'use projectiles mid pvp',
+		Tooltip = 'Use projectiles mid pvp (works with Killaura and GrandKillaura)',
 		Function = function(call)
 			if FireRate then FireRate.Object.Visible = call end
 			if LegitSwitch then LegitSwitch.Object.Visible = call end
@@ -8789,7 +8801,7 @@ run(function()
 			if Fireballs then Fireballs.Object.Visible = call end
 			if FireballCooldown then FireballCooldown.Object.Visible = call and (Fireballs and Fireballs.Enabled) end
 			if call then
-				if Killaura and Killaura.Enabled then
+				if (Killaura and Killaura.Enabled) or (vape.Modules and vape.Modules['GrandKillaura'] and vape.Modules['GrandKillaura'].Enabled) then
 					startAutoShootLoop()
 				end
 			else
@@ -9813,7 +9825,7 @@ run(function()
 							end
 						end
 					end
-					task.wait(0.1)
+					task.wait(0.05)
 				until not ProjectileAura.Enabled
 			end
 		end,
