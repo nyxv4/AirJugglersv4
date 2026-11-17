@@ -10259,7 +10259,25 @@ run(function()
 			local ok, util = pcall(function()
 				return require(replicatedStorage.TS['status-effect']['status-effect-util']).StatusEffectUtil
 			end)
-			bedwars.StatusEffectUtil = ok and util or {isActive = function() return false end}
+			if not (ok and type(util) == 'table') then
+				util = {}
+				function util:isActive(character, name)
+					if not character then return false end
+					local value = character:GetAttribute('StatusEffect_' .. name)
+					if value == nil then return false end
+					if type(value) == 'number' then
+						return value > workspace:GetServerTimeNow()
+					end
+					return value ~= false and value ~= 0
+				end
+			end
+			bedwars.StatusEffectUtil = util
+		end
+		if not bedwars.BlackMarketeerBalance then
+			local ok, balance = pcall(function()
+				return require(replicatedStorage.TS.balance['black-marketeer-balance']).BlackMarketeerBalance
+			end)
+			bedwars.BlackMarketeerBalance = ok and type(balance) == 'table' and balance or {FURY_POTION_ATTACK_SPEED_MULTIPLIER = 1.5}
 		end
 		if not bedwars.getShotData then
 			bedwars.getShotData = function(itemType)
@@ -10362,7 +10380,7 @@ run(function()
 							end
 						end
 					end)
-					limits[remoteName] = found or 60 / 0.289
+					limits[remoteName] = found or 60 / (10 / 36)
 					return limits[remoteName]
 				end
 
@@ -10389,7 +10407,18 @@ run(function()
 							if not call then
 								error('remote "'..tostring(remoteName)..'" has no '..tostring(method), 0)
 							end
-							return call(remote, ...)
+							if remoteName ~= 'SwordHit' then
+								return call(remote, ...)
+							end
+							-- the hub's SwordHit interceptor mutes any caller while an aura target is set, so mark ours as the active sender
+							local previous = store.kaSending
+							store.kaSending = true
+							local packed = table.pack(pcall(call, remote, ...))
+							store.kaSending = previous
+							if not packed[1] then
+								error(packed[2], 0)
+							end
+							return table.unpack(packed, 2, packed.n)
 						end,
 						GetRateLimit = function()
 							return rateLimit(remoteName)
