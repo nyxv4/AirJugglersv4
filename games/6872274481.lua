@@ -8737,7 +8737,8 @@ run(function()
 		local srvNow = workspace:GetServerTimeNow()
 
 		-- Cosmetic swing runs slower than the hits on purpose; sends are untouched.
-		if tick() - lastSwingAnim >= AURA_SWING_INTERVAL then
+		local swingInterval = store.auraSwingInterval or AURA_SWING_INTERVAL
+		if not store.noAuraSwing and tick() - lastSwingAnim >= swingInterval then
 			playAuraSwing(meta, sword)
 			lastSwingAnim = tick()
 			lastAnimTime = lastSwingAnim
@@ -10166,18 +10167,31 @@ run(function()
 		Default = false
 	})
 
-	-- CatKillAura: third aura with its own acquisition, reusing this block's send path.
+	-- CatKillAura: CatVape's Killaura targeting and gating on this hub's send path.
 	;(function()
 		local CatKillaura
 		local CatTargets
-		local CatRange
+		local CatSwingRange
+		local CatAttackRange
 		local CatAngle
+		local CatAirHits
+		local CatAttackSpeed
+		local CatSwingTime
 		local CatMaxTargets
+		local CatSort
+		local CatMouse
+		local CatAttackable
+		local CatSwingOnly
+		local CatNoSwing
+		local CatGUI
 		local CatState = {
 			Period = 0.29583333333333334,
 			LastSrv = 0,
-			AcqTime = 0,
-			AcqRes = nil,
+			Scan = nil,
+			ScanTime = 0,
+			Swing = nil,
+			Hits = {},
+			TargetIndex = 0,
 			Loop = nil
 		}
 
@@ -10188,45 +10202,79 @@ run(function()
 			return ent.Health == nil or ent.Health > 0
 		end
 
-		local function catUsable(ent)
-			if not CatKillaura or not CatKillaura.Enabled then return false end
-			if not catAlive(ent) then return false end
-			local root = entitylib.character and entitylib.character.RootPart
-			if not root then return false end
-			local delta = ent.RootPart.Position - root.Position
-			if delta.Magnitude > CatRange.Value then return false end
-			if CatAngle.Value < 360 then
-				local flat = delta * Vector3.new(1, 0, 1)
-				if flat.Magnitude > 1.0 then
-					local lv = root.CFrame.LookVector * Vector3.new(1, 0, 1)
-					local facing = lv.Magnitude > 0.001 and lv.Unit or root.CFrame.RightVector
-					if facing:Dot(flat.Unit) < math.cos(math.rad(CatAngle.Value) * 0.5) then
-						return false
-					end
-				end
+		local function catBlocked()
+			if CatMouse.Enabled and not inputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then return true end
+			if CatGUI.Enabled then
+				local ok, open = pcall(function()
+					return bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN)
+				end)
+				if ok and open then return true end
 			end
-			if CatTargets.Walls.Enabled and wallBetween(ent) then return false end
-			return true
+			if CatAttackable.Enabled then
+				local char = lplr.Character
+				if not entitylib.isAlive or not char then return true end
+				if (char:GetAttribute('StunnedUntilTime') or 0) > workspace:GetServerTimeNow() then return true end
+				if char:FindFirstChild('elk') then return true end
+				local okFrozen, frozen = pcall(function()
+					return bedwars.StatusEffectUtil:isActive(char, 'frozen')
+				end)
+				if okFrozen and frozen then return true end
+			end
+			if CatSwingOnly.Enabled then
+				local last = bedwars.SwordController and bedwars.SwordController.lastSwing
+				if not last or (tick() - last) > 0.2 then return true end
+			end
+			return false
 		end
 
-		local function catAcquire()
+		local function catPick(selfRoot)
 			local now = tick()
-			if (now - CatState.AcqTime) >= 0.05 then
-				CatState.AcqTime = now
-				CatState.AcqRes = entitylib.AllPosition({
-					Range = CatRange.Value,
+			if not CatState.Scan or (now - CatState.ScanTime) >= 0.05 then
+				CatState.ScanTime = now
+				CatState.Scan = entitylib.AllPosition({
+					Range = CatSwingRange.Value,
+					Wallcheck = CatTargets.Walls.Enabled or nil,
 					Part = 'RootPart',
 					Players = CatTargets.Players.Enabled,
 					NPCs = CatTargets.NPCs.Enabled,
-					Limit = math.max(1, math.floor(CatMaxTargets.Value)),
-					Sort = sortmethods.Distance
+					Limit = math.max(5, math.floor(CatMaxTargets.Value + 2)),
+					Sort = sortmethods[CatSort.Value] or sortmethods.Distance
 				})
+				table.clear(CatState.Hits)
+				CatState.Swing = nil
+
+				local flatScale = Vector3.new(1, 0, 1)
+				local lv = selfRoot.CFrame.LookVector * flatScale
+				local facing = lv.Magnitude > 0.001 and lv.Unit or selfRoot.CFrame.RightVector
+				local minDot = math.cos(math.rad(CatAngle.Value) * 0.5)
+				local cap = math.max(1, math.floor(CatMaxTargets.Value))
+
+				for _, ent in CatState.Scan do
+					if not catAlive(ent) then continue end
+					local delta = ent.RootPart.Position - selfRoot.Position
+					local dist = delta.Magnitude
+					if dist > CatSwingRange.Value then continue end
+					if CatAngle.Value < 360 then
+						local flat = delta * flatScale
+						if flat.Magnitude > 1.0 and facing:Dot(flat.Unit) < minDot then continue end
+					end
+					CatState.Swing = CatState.Swing or ent
+					if dist <= CatAttackRange.Value then
+						table.insert(CatState.Hits, ent)
+						if #CatState.Hits >= cap then break end
+					end
+				end
 			end
-			local list = CatState.AcqRes or {}
-			for _, ent in list do
-				if catUsable(ent) then return ent end
-			end
-			return nil
+			return CatState.Hits, CatState.Swing
+		end
+
+		local function catAirOk(ent)
+			if not CatAirHits or CatAirHits.ValueMin >= 100 then return true end
+			local hum = ent.Character and ent.Character:FindFirstChildOfClass('Humanoid')
+			local airborne = (hum and hum.FloorMaterial == Enum.Material.Air)
+				or math.abs((ent.RootPart.AssemblyLinearVelocity or Vector3.zero).Y) > 0.01
+			if not airborne then return true end
+			return math.random(0, 100) <= CatAirHits:GetRandomValue()
 		end
 
 		local function catStop()
@@ -10234,13 +10282,18 @@ run(function()
 				pcall(task.cancel, CatState.Loop)
 				CatState.Loop = nil
 			end
-			CatState.AcqRes = nil
+			CatState.Scan, CatState.ScanTime = nil, 0
+			CatState.Swing = nil
+			table.clear(CatState.Hits)
 			store.CatKillauraTarget = nil
+			store.auraSwingInterval = nil
+			store.noAuraSwing = nil
+			if getgenv().Attacking then getgenv().Attacking = false end
 		end
 
 		CatKillaura = vape.Categories.Blatant:CreateModule({
 			Name = 'CatKillAura',
-			Tooltip = 'Attacks players around you with its own targeter.',
+			Tooltip = 'CatVape-style aura: swings in swing range and hits in attack range.',
 			Function = function(callback)
 				if callback then
 					if not vape.Loading then
@@ -10250,31 +10303,55 @@ run(function()
 						end
 					end
 					catStop()
+					if CatNoSwing then
+						store.noAuraSwing = CatNoSwing.Enabled and true or nil
+					end
 					CatState.Period = 0.29583333333333334
 					CatState.LastSrv = workspace:GetServerTimeNow() - CatState.Period
-					CatState.AcqTime, CatState.AcqRes = 0, nil
+					CatState.Scan, CatState.ScanTime = nil, 0
 					CatState.Loop = task.spawn(function()
 						while CatKillaura.Enabled do
 							local dt = runService.Heartbeat:Wait()
 							if type(dt) ~= 'number' then dt = 1 / 60 end
-							local sword, meta = getAttackData()
-							local canAttack = sword ~= nil and meta ~= nil
-							if canAttack then
-								CatState.Period = SwordTiming.resolvePeriod(meta)
+							if not CatGUI then
+								task.wait(0.1)
+								continue
 							end
-							local target = catAcquire()
-							if target then
-								targetinfo.Targets[target] = tick() + 1
-								store.CatKillauraTarget = target
-							else
+							if (Killaura and Killaura.Enabled) or (GrandKillaura and GrandKillaura.Enabled) then
 								store.CatKillauraTarget = nil
+								task.defer(function()
+									if CatKillaura.Enabled then pcall(CatKillaura.Toggle, CatKillaura) end
+								end)
+								break
 							end
-							if target and canAttack then
+							local selfRoot = entitylib.character and entitylib.character.RootPart
+							local sword, meta = getAttackData()
+							if not selfRoot or not selfRoot.Parent or not sword or not meta or catBlocked() then
+								store.CatKillauraTarget = nil
+								if getgenv().Attacking then getgenv().Attacking = false end
+								continue
+							end
+							CatState.Period = math.max(SwordTiming.resolvePeriod(meta), CatAttackSpeed.Value)
+							local hits, swingTarget = catPick(selfRoot)
+							if #hits > 0 then
+								CatState.TargetIndex = CatState.TargetIndex % #hits + 1
+								local target = hits[CatState.TargetIndex]
+								store.CatKillauraTarget = target
+								targetinfo.Targets[target] = tick() + 1
+								getgenv().Attacking = true
+								local srvNow = workspace:GetServerTimeNow()
 								local gate = CatState.Period - math.min(dt * 0.5, CatState.Period * 0.06)
-								if (workspace:GetServerTimeNow() - CatState.LastSrv) >= gate then
-									CatState.LastSrv = workspace:GetServerTimeNow()
-									pcall(attemptFire, target, CatRange.Value)
+								if (srvNow - CatState.LastSrv) >= gate and catAlive(target) and catAirOk(target) then
+									CatState.LastSrv = srvNow
+									store.auraSwingInterval = math.max(CatSwingTime:GetRandomValue(), 0.11)
+									pcall(attemptFire, target, CatAttackRange.Value)
 								end
+							else
+								store.CatKillauraTarget = swingTarget
+								if swingTarget then
+									targetinfo.Targets[swingTarget] = tick() + 1
+								end
+								getgenv().Attacking = false
 							end
 						end
 					end)
@@ -10288,12 +10365,20 @@ run(function()
 			Players = true,
 			NPCs = true
 		})
-		CatRange = CatKillaura:CreateSlider({
-			Name = 'Range',
+		CatSwingRange = CatKillaura:CreateSlider({
+			Name = 'Swing range',
 			Min = 1,
-			Max = 24,
-			Default = 20,
+			Max = 40,
+			Default = 40,
 			Suffix = function(val) return val == 1 and 'stud' or 'studs' end
+		})
+		CatAttackRange = CatKillaura:CreateSlider({
+			Name = 'Attack range',
+			Min = 1,
+			Max = 18.1,
+			Default = 18.1,
+			Suffix = function(val) return val == 1 and 'stud' or 'studs' end,
+			Tooltip = 'Maximum distance to attack a target. Swing range only drives the animation.'
 		})
 		CatAngle = CatKillaura:CreateSlider({
 			Name = 'Max angle',
@@ -10301,12 +10386,54 @@ run(function()
 			Max = 360,
 			Default = 360
 		})
+		CatAirHits = CatKillaura:CreateTwoSlider({
+			Name = 'Air hit chance',
+			Min = 0,
+			Max = 100,
+			DefaultMin = 100,
+			DefaultMax = 100,
+			Tooltip = 'Chance to hit an airborne target, rolled between the two values on every swing'
+		})
+		CatSwingTime = CatKillaura:CreateTwoSlider({
+			Name = 'Swing time',
+			Min = 0.11,
+			Max = 2,
+			DefaultMin = 0.11,
+			DefaultMax = 0.11,
+			Decimal = 100,
+			Tooltip = 'Seconds between swing animations, rolled between the two values on every swing'
+		})
+		CatAttackSpeed = CatKillaura:CreateSlider({
+			Name = 'Attack speed',
+			Min = 0,
+			Max = 1,
+			Decimal = 100,
+			Default = 0,
+			Suffix = function(val) return val == 1 and 'second' or 'seconds' end
+		})
 		CatMaxTargets = CatKillaura:CreateSlider({
 			Name = 'Max targets',
 			Min = 1,
 			Max = 5,
-			Default = 3
+			Default = 5
 		})
+		CatSort = CatKillaura:CreateDropdown({
+			Name = 'Target Mode',
+			List = {'Distance', 'Threat', 'Health', 'Angle'}
+		})
+		CatMouse = CatKillaura:CreateToggle({Name = 'Require mouse down'})
+		CatAttackable = CatKillaura:CreateToggle({Name = 'Attackable check'})
+		CatSwingOnly = CatKillaura:CreateToggle({
+			Name = 'Swing only',
+			Tooltip = 'Only attacks while you are swinging manually'
+		})
+		CatNoSwing = CatKillaura:CreateToggle({
+			Name = 'No Swing',
+			Function = function(cb)
+				store.noAuraSwing = (cb and CatKillaura and CatKillaura.Enabled) and true or nil
+			end
+		})
+		CatGUI = CatKillaura:CreateToggle({Name = 'GUI check'})
 	end)()
 end)
 						
