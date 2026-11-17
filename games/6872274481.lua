@@ -10226,12 +10226,12 @@ run(function()
 		ArcCheck.FilterType = Enum.RaycastFilterType.Exclude
 
 		local SwordTiming = {
-			SafeSpacing = 0.2875,
-			HighSpacing = 0.2815,
-			HitFloor = 0.2755,
-			GapFloor = 0.2795,
+			SafeSpacing = 0.2845,
+			HighSpacing = 0.2780,
+			HitFloor = 0.2730,
+			GapFloor = 0.2778,
 			ArrivalFloor = 0.2747,
-			CooldownCorrection = (0.017999999225139618 / 10) + 0.013412 + 0.005
+			CooldownCorrection = (0.017999999225139618 / 10) + 0.013412 + 0.007
 		}
 		local WeaponSpacing = {
 			[0.21] = 0.229,
@@ -10324,7 +10324,7 @@ run(function()
 			return ok and res or nil
 		end}
 
-		local HitBudget = 0.2
+		local HitBudget = 0.14
 		local HitFloor, GapFloor = SwordTiming.HitFloor, SwordTiming.GapFloor
 		local CleanFloor = SwordTiming.HighSpacing
 		local ArrivalFloor = SwordTiming.ArrivalFloor
@@ -11099,8 +11099,8 @@ run(function()
 									if Stock and HighHitreg.Enabled then
 										GapMin = math.max(GapMin + GhostDelay + Margin, AttackSpeed.Value)
 									end
-									local Band = (HighHitreg.Enabled and 10 / 35.5 or 10 / 34) * SpeedScale
-									local BandFloor = math.max(HighHitreg.Enabled and 10 / 36 or 10 / 35, CleanFloor) * SpeedScale
+									local Band = (HighHitreg.Enabled and 10 / 36 or 10 / 34) * SpeedScale
+									local BandFloor = math.max(HighHitreg.Enabled and 10 / 36.5 or 10 / 35, CleanFloor) * SpeedScale
 									local Frames = math.floor(Band / FrameTime)
 									if Stock and (math.ceil(Spacing / FrameTime) * FrameTime) > Band and (Frames * FrameTime) >= BandFloor then
 										Spacing = math.max((Frames * FrameTime) - (FrameTime * 0.5), GapFloor * SpeedScale)
@@ -11191,16 +11191,9 @@ run(function()
 										local HitDelay = Hitreg.Value == 'Burst' and math.max(GhostDelay, AttackSpeed.Value, BurstWait) or math.max(HitBudget, Spacing + GhostDelay + Margin, AttackSpeed.Value, GameCooldown)
 										local Deadline = math.max(SwingCooldown + HitDelay, LastHit + GapMin, tick() + GameCooldown)
 										local Tracked = Hitreg.Value ~= 'Burst' and type(v.Character:GetAttribute('LastDamageTakenTime')) == 'number'
-										local LatencyGuard, Waiting = Tracked and Stock and HighHitreg.Enabled and LocalPlayer:GetNetworkPing() >= 0.12, false
+										local Waiting = false
 										if Tracked then
 											Deadline = math.max(Deadline, math.min(HitDeadline, LastHit + HitDelay + HitregTiming.HoldCap))
-										end
-										if LatencyGuard then
-											local Pending = HitPending[#HitPending]
-											if Pending and #HitPending < 3 and ConfirmMin and (ConfirmMin + FrameTime) < HitDelay and Pending.sent == LastHit then
-												Deadline = math.max(Deadline, LastHit + HitDelay + 0.04)
-												Waiting = true
-											end
 										end
 										local Remaining = Deadline - tick()
 										if Precise and not Waiting and Remaining > 0 and Remaining < math.min(FrameTime, FrameStep, 0.25) then
@@ -11412,7 +11405,7 @@ run(function()
 									if GhostCount > (Recovery and 0 or 1) and tick() > GhostStep then
 										GhostStep = tick() + 1
 										GhostHold = tick() + (Recovery and HitregTiming.MarginHold or HighHitreg.Enabled and 2 or 10)
-										GhostDelay = math.min(GhostDelay + (Recovery and HitregTiming.RecoveryStep or HighHitreg.Enabled and 0.001 or 0.003), Recovery and HitregTiming.RecoveryCap or HighHitreg.Enabled and 0.0035 or 0.1)
+										GhostDelay = math.min(GhostDelay + (Recovery and HitregTiming.RecoveryStep or HighHitreg.Enabled and 0.001 or 0.003), Recovery and HitregTiming.RecoveryCap or HighHitreg.Enabled and 0.0015 or 0.1)
 									end
 								elseif GhostDelay > 0 and tick() > GhostHold then
 									GhostHold = tick() + (Recovery and HitregTiming.MarginHold or HighHitreg.Enabled and 2 or 10)
