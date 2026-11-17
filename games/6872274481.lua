@@ -2177,7 +2177,9 @@ run(function()
 				local currentHand, toolType = new.Inventory.observedInventory.inventory.hand, ''
 				if currentHand then
 					local handData = bedwars.ItemMeta[currentHand.itemType]
-					toolType = handData.sword and 'sword' or handData.block and 'block' or currentHand.itemType:find('bow') and 'bow'
+					if handData then
+						toolType = handData.sword and 'sword' or handData.block and 'block' or currentHand.itemType:find('bow') and 'bow'
+					end
 				end
 
 				store.hand = {
@@ -6223,7 +6225,7 @@ run(function()
 					}
 				end
 
-				local Values, Attempts, Started = nil, 0, os.clock()
+				local Values, Attempts = nil, 0
 				local Ent = entitylib.EntityMouse({
 					Part = 'RootPart',
 					Range = FOV.Value,
@@ -6240,7 +6242,7 @@ run(function()
 						if (Candidate.RootPart.Position - entitylib.character.RootPart.Position).Magnitude > Distance.Value then
 							return false
 						end
-						if Attempts >= 10 or (Attempts > 0 and (os.clock() - Started) > 0.0015) then
+						if Attempts >= 24 then
 							return false
 						end
 						Attempts += 1
@@ -6699,7 +6701,7 @@ run(function()
 	local SERVER_FLOOR = 0.292
 	local SERVER_REACH = 14.399
 	local NORMAL_SWORD_SWING_SPEED = 0.35 -- Standard in-game sword swing speed, NEVER changes
-	local AURA_SWING_INTERVAL = 0.5 -- cosmetic only: how often the visible swing replays, hits keep their own cadence
+	local AURA_SWING_INTERVAL = 0.35 -- cosmetic only: matches the native sword swing; hits keep their own cadence
 	local kaPeriod = HIT_PERIOD
 	local animPeriod = NORMAL_SWORD_SWING_SPEED -- Animation is ALWAYS decoupled from hit timing
 	local kaLastSrv = 0 -- scheduled server time of the last accepted hit
@@ -7108,6 +7110,13 @@ run(function()
 			end)
 			controller.lastSwing = tick()
 		end
+
+		-- Clients only render a swing when the game announces one over the sync namespace.
+		pcall(function()
+			local syncEvents = bedwars.ClientSyncEvents or (bedwars.Client and bedwars.Client:GetNamespace('Default'))
+			local event = syncEvents and syncEvents:Get('SwordSwing')
+			if event then event:Fire({player = lplr}) end
+		end)
 	end
 
 	-- REAL-TIME USE KITS ENGINE
@@ -9196,8 +9205,7 @@ run(function()
 		if not root or not v or not v.RootPart then return false end
 		local flat = (v.RootPart.Position - root.Position) * Vector3.new(1, 0, 1)
 		if flat.Magnitude <= 1.0 then return true end
-		local camLV = gameCamera and gameCamera.CFrame.LookVector * Vector3.new(1, 0, 1)
-		local flatLV = (camLV and camLV.Magnitude > 0.001) and camLV or root.CFrame.LookVector * Vector3.new(1, 0, 1)
+		local flatLV = root.CFrame.LookVector * Vector3.new(1, 0, 1)
 		local facing = flatLV.Magnitude > 0.001 and flatLV.Unit or root.CFrame.RightVector
 		return facing:Dot(flat.Unit) >= math.cos(math.rad(GrandAngle.Value) * 0.5)
 	end
@@ -9217,7 +9225,7 @@ run(function()
 		end
 
 		local g = GrandFire.GraceTarget
-		if g and tick() < GrandFire.GraceUntil and GrandFire.aliveTarget(g) and GrandFire.withinAngle(g) and GrandFire.inReach(g) and g ~= avoid and not (GrandTargets.Walls.Enabled and wallBetween(g)) then
+		if g and tick() < GrandFire.GraceUntil and GrandFire.aliveTarget(g) and GrandFire.inReach(g) and g ~= avoid and not (GrandTargets.Walls.Enabled and wallBetween(g)) then
 			return g
 		end
 
@@ -9473,8 +9481,7 @@ run(function()
 						local plrs = GrandFire.ScanCache
 						if #plrs > 0 then
 							local selfpos = entitylib.character.RootPart.Position
-							local camLV = gameCamera and gameCamera.CFrame.LookVector * Vector3.new(1, 0, 1)
-							local flatLV = (camLV and camLV.Magnitude > 0.001) and camLV or entitylib.character.RootPart.CFrame.LookVector * Vector3.new(1, 0, 1)
+							local flatLV = entitylib.character.RootPart.CFrame.LookVector * Vector3.new(1, 0, 1)
 							local localfacing = flatLV.Magnitude > 0.001 and flatLV.Unit or entitylib.character.RootPart.CFrame.RightVector
 							local minDot = math.cos(math.rad(GrandAngle.Value) * 0.5)
 
