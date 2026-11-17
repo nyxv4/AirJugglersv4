@@ -10340,7 +10340,7 @@ run(function()
 		local TrailTimes, TrailPositions = {}, {}
 		local SelfReference = {Low = Vector3.zero, High = Vector3.zero, Claim = Vector3.zero}
 		local BurstShots, BurstWait = 0, 0
-		local ScanInterval = 1 / 75
+		local ScanInterval = 0.025
 		local FlatScale = Vector3.new(1, 0, 1)
 		local ParkedPosition = Vector3.new(9e9, 9e9, 9e9)
 		local ParticleShown = setmetatable({}, {__mode = 'k'})
@@ -10468,7 +10468,7 @@ run(function()
 				Mode = require(replicatedStorage.TS.games.bedwars.kit.kits['frosty-gun']['frosty-gun-util']).FrostyGunMode
 			end)
 			if Mode and Controller.projectileMode ~= Mode.PROJECTILE then
-				if tick() >= NextSophiaSwap and bedwars.AbilityController:canUseAbility('frosty_gun_swap', {disableBlockedAbilityAlert = true}) then
+				if tick() >= NextSophiaSwap and bedwars.AbilityController and bedwars.AbilityController:canUseAbility('frosty_gun_swap', {disableBlockedAbilityAlert = true}) then
 					NextSophiaSwap = tick() + 1
 					bedwars.AbilityController:useAbility('frosty_gun_swap')
 				end
@@ -10668,47 +10668,36 @@ run(function()
 		}
 
 		local function UpdateVisuals(Attacked, BoxData)
+			if vape.ThreadFix then setthreadidentity(8) end
 			for i, v in Boxes do
 				if BoxData[v] == nil and Attacked[i] then
-					if vape.ThreadFix then setthreadidentity(8) end
 					v.Size = Vector3.zero
-					if vape.ThreadFix then setthreadidentity(8) end
 					local Tween = TweenService:Create(v, TweenInfo.new(BoxAttackSpeed.Value, Enum.EasingStyle[BoxAttackTween.Value]), {
 						Size = Vector3.new(4, 6, 4)
 					})
-					if vape.ThreadFix then setthreadidentity(8) end
 					Tween:Play()
 				elseif BoxData[v] and not Attacked[i] then
-					if vape.ThreadFix then setthreadidentity(8) end
 					local Tween = TweenService:Create(v, TweenInfo.new(BoxAttackSpeedEnd.Value, Enum.EasingStyle[BoxAttackTween.Value]), {
 						Size = Vector3.zero
 					})
-					if vape.ThreadFix then setthreadidentity(8) end
 					Tween:Play()
 				end
 				BoxData[v] = Attacked[i] or nil
 				if Attacked[i] then
-					if vape.ThreadFix then setthreadidentity(8) end
 					v.Adornee = Attacked[i].Entity.RootPart
-					if vape.ThreadFix then setthreadidentity(8) end
 					v.Color3 = Color3.fromHSV(Attacked[i].Check.Hue, Attacked[i].Check.Sat, Attacked[i].Check.Value)
-					if vape.ThreadFix then setthreadidentity(8) end
 					v.Transparency = 1 - Attacked[i].Check.Opacity
 				end
 			end
 			for i, v in Particles do
 				if Attacked[i] then
-					if vape.ThreadFix then setthreadidentity(8) end
 					v.Position = Attacked[i].Entity.RootPart.Position
 					if not ParticleShown[v] then
-						if vape.ThreadFix then setthreadidentity(8) end
 						v.Parent = Camera
 						ParticleShown[v] = true
 					end
 				elseif ParticleShown[v] ~= false then
-					if vape.ThreadFix then setthreadidentity(8) end
 					v.Position = ParkedPosition
-					if vape.ThreadFix then setthreadidentity(8) end
 					v.Parent = nil
 					ParticleShown[v] = false
 				end
@@ -10995,7 +10984,7 @@ run(function()
 
 					local BoxData = {}
 					local FrameCount, FrameWindow, FrameTime = 0, tick(), HighHitreg.Enabled and RunService.Heartbeat:Wait() or 1 / 240
-					local PreciseSpinCap = 0.05
+					local PreciseSpinCap = 0.035
 					if not Killaura.Enabled or Session ~= Current then
 						endSession()
 						return
