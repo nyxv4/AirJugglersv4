@@ -3532,7 +3532,9 @@ run(function()
 						LastTarget = nil
 						return
 					end
-					entitylib.character.Humanoid.AutoRotate = tick() > RotateTime
+					local hum = entitylib.character.Humanoid
+					local wantRotate = tick() > RotateTime
+					if hum.AutoRotate ~= wantRotate then hum.AutoRotate = wantRotate end
 
 					local projMeta = won(CatProjectiles) and getHeldProjMeta() or nil
 					local charging = projMeta ~= nil and ((bedwars.ProjectileController and bedwars.ProjectileController.isTargeting == true)
@@ -4661,7 +4663,12 @@ run(function()
 				if not namecallHooked then
 					namecallHooked = true
 					namecall = hookmetamethod(game, '__namecall', newcclosure(function(...)
-						if not SilentAim.Enabled or checkcaller() or getnamecallmethod() ~= 'InvokeServer' then
+						-- Cheap bail first: the wrapper stays installed for the whole session, so avoid
+						-- two extra C calls on every namecall in the game while SilentAim is off.
+						if not SilentAim.Enabled then
+							return namecall(...)
+						end
+						if checkcaller() or getnamecallmethod() ~= 'InvokeServer' then
 							return namecall(...)
 						end
 						local remote = ...
@@ -6911,19 +6918,31 @@ run(function()
 		return nil
 	end
 
+	-- One track per animator+asset, reused. Building a new Animation + LoadAnimation on every
+	-- swing ran inside the hit path and left an Animation instance behind each call.
+	local swingTrackCache = setmetatable({}, {__mode = 'k'})
 	local function playSwingTrack(model, assetId)
 		if not assetId or typeof(model) ~= 'Instance' then return nil end
 		local humanoid = model:FindFirstChildOfClass('Humanoid')
 		local animator = humanoid and humanoid:FindFirstChildOfClass('Animator')
 		if not animator then return end
+		local cache = swingTrackCache[animator]
+		if not cache then
+			cache = {}
+			swingTrackCache[animator] = cache
+		end
+		local cached = cache[assetId]
+		if cached and pcall(cached.Play, cached) then
+			return cached
+		end
+		cache[assetId] = nil
 		local animation = Instance.new('Animation')
 		animation.AnimationId = assetId
 		local ok, track = pcall(animator.LoadAnimation, animator, animation)
+		animation:Destroy()
 		if not (ok and track) then return end
 		track.Priority = Enum.AnimationPriority.Action
-		track.Ended:Once(function()
-			track:Destroy()
-		end)
+		cache[assetId] = track
 		track:Play()
 		return track
 	end
