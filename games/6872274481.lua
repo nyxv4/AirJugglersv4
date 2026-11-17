@@ -54,7 +54,6 @@ local function fireInventoryChanged()
 end
 
 local playersService = cloneref(game:GetService('Players'))
-local collectionService = cloneref(game:GetService('CollectionService'))
 local function getLocalKits()
 	local raw = playersService.LocalPlayer:GetAttribute('PlayingAsKits')
 	local list = {}
@@ -3814,6 +3813,421 @@ run(function()
 	end)
 end)
 
+run(function()
+	local CatAim
+	local CatPersp, CatMode, CatTargets, CatSort, CatAimArea
+	local CatSpeed, CatSmooth, CatShake, CatDistance, CatAngle
+	local CatStrafe, CatClickAim, CatMouseDown, CatBlockBreak, CatKATarget, CatLimit
+	local CatProjectiles, CatProjRange
+
+	local rng = Random.new()
+	local charParts = setmetatable({}, {__mode = 'k'})
+	local aimRay = RaycastParams.new()
+	aimRay.FilterType = Enum.RaycastFilterType.Include
+
+	local Started, LastTarget, NextSearch = 0, nil, 0
+	local RolledSpeed = 0
+	local RotateTime = 0
+
+	local function getHeldProjMeta()
+		local tool = store.hand and store.hand.tool
+		local itemMeta = tool and bedwars.ItemMeta and bedwars.ItemMeta[tool.Name]
+		local source = itemMeta and itemMeta.projectileSource
+		if not source or not source.projectileType then return nil end
+		local ammo = tool.Name
+		if source.ammoItemTypes and #source.ammoItemTypes > 0 then
+			ammo = nil
+			local inventory = store.inventory and store.inventory.inventory
+			local items = inventory and inventory.items
+			if items then
+				for _, item in items do
+					if table.find(source.ammoItemTypes, item.itemType) then
+						ammo = item.itemType
+						break
+					end
+				end
+			end
+		end
+		if not ammo then return nil end
+		local projType = source.projectileType
+		local ok = true
+		if type(projType) == 'function' then
+			ok, projType = pcall(projType, ammo)
+		end
+		local projMeta = ok and projType and bedwars.ProjectileMeta and bedwars.ProjectileMeta[projType]
+		if projMeta and type(projMeta.launchVelocity) == 'number' then
+			return projMeta
+		end
+		return nil
+	end
+
+	local function getAimPoint(ent)
+		if CatAimArea.Value == 'Closest' and ent.Character then
+			if not charParts[ent.Character] then
+				charParts[ent.Character] = ent.Character:GetChildren()
+			end
+			local mousePos = inputService.TouchEnabled and (gameCamera.ViewportSize / 2) or inputService:GetMouseLocation()
+			local bestDist, bestPart = 9e9, nil
+			for _, v in charParts[ent.Character] do
+				if v and v.Parent and v:IsA('BasePart') then
+					local screenPos, visible = gameCamera:WorldToViewportPoint(v.Position)
+					if visible then
+						local d = (mousePos - Vector2.new(screenPos.X, screenPos.Y)).Magnitude
+						if d < bestDist then
+							bestDist = d
+							bestPart = v
+						end
+					end
+				end
+			end
+			if bestPart then return bestPart.Position end
+		end
+		return ent.RootPart.Position
+	end
+
+	local function cameraAimPoint(launchPos, aimPos)
+		local bow = bedwars.BowConstantsTable or {}
+		local camPos = gameCamera.CFrame.Position
+		local delta = aimPos - launchPos
+		if delta.Magnitude < 0.01 then return nil end
+		local dir = delta.Unit
+		local offset = launchPos - camPos
+		local reach = offset.Magnitude * (bow.CameraMultiplier or 10)
+		if reach > 0.01 then
+			local along = offset:Dot(dir)
+			local travel = math.sqrt(math.max(along * along - offset:Dot(offset) + reach * reach, 0)) - along
+			dir = (offset + dir * travel).Unit
+		end
+		local lift = bow.YTargetOffset or 0.05
+		local k = dir.Y * lift
+		local scale = k + math.sqrt(math.max(k * k - lift * lift + 1, 0))
+		local look = dir * scale - Vector3.new(0, lift, 0)
+		if look.Magnitude < 0.01 then return nil end
+		return camPos + look.Unit * (aimPos - camPos).Magnitude
+	end
+
+	local function projectileAim(ent, projMeta)
+		local root = entitylib.character and entitylib.character.RootPart
+		if not root then return nil end
+		local tool = store.hand and store.hand.tool
+		local launchPos = root.Position
+		pcall(function()
+			local native = bedwars.ProjectileController:getLaunchPosition(tool)
+			if typeof(native) == 'Vector3' then launchPos = native end
+		end)
+		launchPos += Vector3.new(0, 2, 0)
+
+		local speed = tonumber(projMeta.launchVelocity) or 0
+		local gravity = tonumber(projMeta.gravitationalAcceleration) or 196.2
+		if gravity < 1 then gravity = 0 end
+		local targetPos = ent.RootPart.Position
+		local rawVel = ent.RootPart.AssemblyLinearVelocity
+		local hum = ent.Character and ent.Character:FindFirstChildOfClass('Humanoid')
+		local airborne = (hum and hum.FloorMaterial == Enum.Material.Air) or math.abs(rawVel.Y) > 3
+		local playerGravity = workspace.Gravity
+		local balloons = ent.Character and ent.Character:GetAttribute('InflatedBalloons')
+		if balloons and balloons > 0 then
+			playerGravity = balloonGravity(balloons, ent.Character)
+		end
+		local hop = nil
+		if hum then
+			local st = hum:GetState()
+			if st == Enum.HumanoidStateType.Jumping or st == Enum.HumanoidStateType.Freefall then hop = 42.6 end
+		end
+		local map = workspace:FindFirstChild('Map')
+		if map then aimRay.FilterDescendantsInstances = {map} end
+		local bow = bedwars.BowConstantsTable or {}
+		local spawnPos = prediction.GetSpawnPosition(launchPos, targetPos, bow.RelX or 0.8, bow.RelY or -0.6, bow.RelZ or 0)
+		local calc, travelTime = prediction.SolveTrajectory(
+			spawnPos, speed, gravity, targetPos, rawVel,
+			playerGravity, ent.HipHeight, hop, aimRay,
+			airborne, targetPos, ent.RootPart, nil, true
+		)
+		if not calc or not travelTime or travelTime > (tonumber(projMeta.lifetimeSec) or 3) then
+			return nil
+		end
+		return cameraAimPoint(launchPos, calc)
+	end
+
+	local function moveMouseRel(dx, dy)
+		local fn = getgenv().mousemoverel or mousemoverel
+		if type(fn) ~= 'function' then return false end
+		local ok = pcall(fn, dx, dy)
+		return ok
+	end
+
+	local AimFunctions = {
+		Simple = function(localCF, point, dt)
+			local strafe = CatStrafe.Enabled and (inputService:IsKeyDown(Enum.KeyCode.A) or inputService:IsKeyDown(Enum.KeyCode.D)) and 10 or 0
+			local speed = (RolledSpeed + strafe) / math.max(CatSmooth.Value, 0.1)
+			local jitter = CatShake.Value * dt
+			local aim = CFrame.lookAt(localCF.Position, point + Vector3.new((rng:NextNumber() - 0.5) * jitter, (rng:NextNumber() - 0.5) * jitter, (rng:NextNumber() - 0.5) * jitter))
+			return localCF:Lerp(aim, math.clamp(speed * dt, 0, 1)), speed
+		end,
+		Adaptive = function(localCF, point, dt)
+			local t = math.min(tick() - Started, 1)
+			local progress = t < 0.5 and 4 * t * t * t or 1 - (-2 * t + 2) ^ 3 / 2
+			local strafeVal = CatStrafe.Enabled and (inputService:IsKeyDown(Enum.KeyCode.A) or inputService:IsKeyDown(Enum.KeyCode.D)) and 10 or 5
+			local speed = ((RolledSpeed * 0.1 * progress) + (1 - progress) + strafeVal) / math.max(CatSmooth.Value, 0.1)
+			local jitter = CatShake.Value * dt
+			local aim = CFrame.lookAt(localCF.Position, point + Vector3.new((rng:NextNumber() - 0.5) * jitter, (rng:NextNumber() - 0.5) * jitter, (rng:NextNumber() - 0.5) * jitter))
+			return localCF:Lerp(aim, math.clamp(speed * dt, 0, 1)), speed
+		end
+	}
+
+	local function targetValid(ent)
+		return ent and ent.Targetable and entitylib.isAlive and entitylib.isVulnerable(ent)
+			and ent.Character and ent.Character.Parent and ent.RootPart and ent.RootPart.Parent
+	end
+
+	CatAim = vape.Categories.Combat:CreateModule({
+		Name = 'CatAimAssist',
+		Tooltip = 'Cat Vape aim assist: smooth camera, character or mouse aim with projectile leading',
+		Function = function(callback)
+			if callback then
+				LastTarget = nil
+				NextSearch = 0
+				RolledSpeed = 0
+				CatAim:Clean(runService.PostSimulation:Connect(function(dt)
+					dt = math.min(dt, 1 / 30)
+					if not entitylib.isAlive or not entitylib.character or not entitylib.character.RootPart then
+						LastTarget = nil
+						return
+					end
+					entitylib.character.Humanoid.AutoRotate = tick() > RotateTime
+
+					local projMeta = CatProjectiles.Enabled and getHeldProjMeta() or nil
+					local charging = projMeta ~= nil and ((bedwars.ProjectileController and bedwars.ProjectileController.isTargeting == true)
+						or inputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1))
+					local range = projMeta and CatProjRange.Value or CatDistance.Value
+
+					local blocked = CatMouseDown.Enabled and not charging and not inputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+						and (tick() - (bedwars.SwordController and bedwars.SwordController.lastSwing or 0)) > 0.15
+					blocked = blocked or (CatClickAim.Enabled and not charging
+						and (tick() - (bedwars.SwordController and bedwars.SwordController.lastSwing or 0)) > 0.3)
+					blocked = blocked or (CatBlockBreak.Enabled and (tick() - (store.lastHit or 0)) < 0.3)
+					blocked = blocked or (CatLimit.Enabled and (not store.hand or store.hand.toolType ~= 'sword') and not projMeta)
+
+					local ent = nil
+					if not blocked then
+						local selfRoot = entitylib.character.RootPart
+						if targetValid(LastTarget) and tick() < NextSearch
+							and (selfRoot.Position - LastTarget.RootPart.Position).Magnitude <= range
+							and not (CatTargets.Walls.Enabled and entitylib.Wallcheck(selfRoot.Position, LastTarget.RootPart.Position, CatTargets.Walls.Enabled, LastTarget)) then
+							ent = LastTarget
+						else
+							local ka = store.KillauraTarget
+							if CatKATarget.Enabled and targetValid(ka) and (selfRoot.Position - ka.RootPart.Position).Magnitude <= range
+								and not (CatTargets.Walls.Enabled and entitylib.Wallcheck(selfRoot.Position, ka.RootPart.Position, CatTargets.Walls.Enabled, ka)) then
+								ent = ka
+							else
+								ent = entitylib.EntityPosition({
+									Range = range,
+									Part = 'RootPart',
+									Wallcheck = CatTargets.Walls.Enabled,
+									Players = CatTargets.Players.Enabled,
+									NPCs = CatTargets.NPCs.Enabled,
+									Sort = sortmethods[CatSort.Value] or sortmethods.Distance
+								})
+								if ent ~= LastTarget then
+									Started = tick()
+								end
+								LastTarget = ent
+								NextSearch = tick() + 1
+								RolledSpeed = (CatSpeed.GetRandomValue and CatSpeed.GetRandomValue()) or 6
+							end
+						end
+					end
+
+					if not ent then return end
+
+					local root = entitylib.character.RootPart
+					local offset = ent.RootPart.Position - root.Position
+					local facing = root.CFrame.LookVector * Vector3.new(1, 0, 1)
+					local horizontal = offset * Vector3.new(1, 0, 1)
+					local angle = (facing.Magnitude > 0 and horizontal.Magnitude > 0)
+						and math.acos(math.clamp(facing.Unit:Dot(horizontal.Unit), -1, 1)) or 0
+					if angle >= math.rad(CatAngle.Value) / 2 then return end
+
+					local aimPoint = ent.RootPart.Position
+					if projMeta then
+						aimPoint = projectileAim(ent, projMeta)
+						if not aimPoint then return end
+					else
+						aimPoint = getAimPoint(ent)
+					end
+					targetinfo.Targets[ent] = tick() + 1
+
+					local firstPerson = isFirstPerson()
+					local perspective = CatPersp.Value or 'First person'
+					local aimFn = AimFunctions[CatMode.Value or 'Simple'] or AimFunctions.Simple
+					if perspective == 'Mouse' then
+						local aimCF, speed = aimFn(gameCamera.CFrame, aimPoint, dt)
+						local viewport = gameCamera:WorldToViewportPoint(aimCF.Position + aimCF.LookVector * (aimPoint - aimCF.Position).Magnitude)
+						local delta = (Vector2.new(viewport.X, viewport.Y) - inputService:GetMouseLocation()) * (speed / 15)
+						if not moveMouseRel(delta.X, delta.Y) then
+							gameCamera.CFrame = aimCF
+						end
+					elseif perspective == 'First person' or (perspective == 'Dynamic' and firstPerson) then
+						if firstPerson then
+							gameCamera.CFrame = aimFn(gameCamera.CFrame, aimPoint, dt)
+						end
+					elseif perspective == 'Third person' or (perspective == 'Dynamic' and not firstPerson) then
+						if not firstPerson then
+							if projMeta then
+								gameCamera.CFrame = aimFn(gameCamera.CFrame, aimPoint, dt)
+							else
+								local aimCF = aimFn(root.CFrame, aimPoint, dt)
+								local direction = aimCF.LookVector * Vector3.new(1, 0, 1)
+								if direction.Magnitude > 0 then
+									entitylib.character.Humanoid.AutoRotate = false
+									root.CFrame = CFrame.lookAlong(root.Position, direction)
+									RotateTime = tick() + 0.1
+								end
+							end
+						end
+					end
+				end))
+			else
+				LastTarget = nil
+				RotateTime = 0
+				if entitylib.isAlive and entitylib.character and entitylib.character.Humanoid then
+					entitylib.character.Humanoid.AutoRotate = true
+				end
+			end
+		end
+	})
+
+	CatPersp = CatAim:CreateDropdown({
+		Name = 'Aim perspective',
+		List = {'First person', 'Third person', 'Mouse', 'Dynamic'},
+		Default = 'First person',
+		Tooltip = 'Mouse moves your cursor, Third person turns your character, Dynamic follows your current camera'
+	})
+
+	CatMode = CatAim:CreateDropdown({
+		Name = 'Aim mode',
+		List = {'Simple', 'Adaptive'},
+		Default = 'Simple',
+		Tooltip = 'Simple - constant smoothing\nAdaptive - eases in when locking onto a new target'
+	})
+
+	CatTargets = CatAim:CreateTargets({
+		Players = true,
+		Walls = true
+	})
+
+	CatSort = CatAim:CreateDropdown({
+		Name = 'Target mode',
+		List = getSortList({'Angle'}),
+		Default = 'Angle'
+	})
+
+	CatAimArea = CatAim:CreateDropdown({
+		Name = 'Target area',
+		List = {'Center', 'Closest'},
+		Default = 'Center',
+		Tooltip = 'Center aims at the torso, Closest aims at the body part nearest your cursor'
+	})
+
+	CatClickAim = CatAim:CreateToggle({
+		Name = 'Click aim',
+		Default = true
+	})
+
+	CatMouseDown = CatAim:CreateToggle({
+		Name = 'Require mouse down',
+		Default = false
+	})
+
+	CatStrafe = CatAim:CreateToggle({
+		Name = 'Strafe increase',
+		Default = false
+	})
+
+	CatBlockBreak = CatAim:CreateToggle({
+		Name = 'Check block break',
+		Default = false
+	})
+
+	CatKATarget = CatAim:CreateToggle({
+		Name = 'Use killaura target',
+		Default = false
+	})
+
+	CatLimit = CatAim:CreateToggle({
+		Name = 'Limit to items',
+		Default = false,
+		Tooltip = 'Only aims while holding a sword, or a projectile weapon with Projectiles on'
+	})
+
+	CatSpeed = CatAim:CreateTwoSlider({
+		Name = 'Aim speed',
+		Min = 1,
+		Max = 20,
+		DefaultMin = 6,
+		DefaultMax = 6,
+		Tooltip = 'Chooses a random speed in this range every lock-on and rescan'
+	})
+
+	CatSmooth = CatAim:CreateSlider({
+		Name = 'Smoothness',
+		Min = 1,
+		Max = 20,
+		Default = 1,
+		Decimal = 10,
+		Tooltip = 'Divides the aim speed, 1 leaves it unchanged'
+	})
+
+	CatShake = CatAim:CreateSlider({
+		Name = 'Shake',
+		Min = 0,
+		Max = 100,
+		Default = 0,
+		Tooltip = 'Adds random jitter for a less robotic aim'
+	})
+
+	CatDistance = CatAim:CreateSlider({
+		Name = 'Distance',
+		Min = 1,
+		Max = 30,
+		Default = 30,
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end
+	})
+
+	CatAngle = CatAim:CreateSlider({
+		Name = 'Max angle',
+		Min = 1,
+		Max = 360,
+		Default = 70
+	})
+
+	CatProjectiles = CatAim:CreateToggle({
+		Name = 'Projectiles',
+		Default = false,
+		Tooltip = 'While holding a projectile weapon, aims where the shot meets a moving target',
+		Function = function(callback)
+			if CatProjRange and CatProjRange.Object then
+				CatProjRange.Object.Visible = callback
+			end
+		end
+	})
+
+	CatProjRange = CatAim:CreateSlider({
+		Name = 'Projectile Range',
+		Min = 1,
+		Max = 300,
+		Default = 200,
+		Darker = true,
+		Visible = false,
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end
+	})
+end)
+
 
 
 run(function()
@@ -4408,18 +4822,9 @@ end)
 ]]
 
 local function watchTargets()
-	return runService.Heartbeat:Connect(function()
-		if not entitylib.isAlive or not prediction.Observe then return end
-		local here = entitylib.character.RootPart.Position
-		for _, ent in entitylib.List do
-			local root = ent.RootPart
-			if root and root.Parent and (root.Position - here).Magnitude < 250 then
-				local vel = root.AssemblyLinearVelocity
-				local air = (ent.Humanoid and ent.Humanoid.FloorMaterial == Enum.Material.Air) or math.abs(vel.Y) > 0.01
-				pcall(prediction.Observe, root, root.Position, vel, air, workspace.Gravity, here, ent.HipHeight, ent.Jumping and 42.6 or nil)
-			end
-		end
-	end)
+	-- The boot-time prediction observer already feeds prediction.Observe for every target,
+	-- so this per-frame duplicate was pure extra work while SilentAim was on.
+	return function() end
 end
 
 run(function()
@@ -6077,6 +6482,16 @@ run(function()
 				return
 			end
 
+			local owlTagCache, owlTagAt = nil, 0
+			local function getOwlTags()
+				local now = tick()
+				if not owlTagCache or now - owlTagAt > 0.5 then
+					owlTagCache = collectionService:GetTagged('Owl')
+					owlTagAt = now
+				end
+				return owlTagCache
+			end
+
 			local function AimLaunchValues(self, LaunchData, WorldMeta, Origin, ShootPosition)
 				local LaunchPosition = ShootPosition or self:getLaunchPosition(Origin)
 				if not LaunchPosition then
@@ -6123,7 +6538,7 @@ run(function()
 					end
 
 					if Ent.Player and Ent.Player:GetAttribute('IsOwlTarget') then
-						for _, v in collectionService:GetTagged('Owl') do
+						for _, v in getOwlTags() do
 							if v:GetAttribute('Target') == Ent.Player.UserId and v:GetAttribute('Status') == 2 then
 								PlayerGravity = 0
 								break
@@ -6645,10 +7060,6 @@ run(function()
 	local kaPeriod = HIT_PERIOD
 	local animPeriod = NORMAL_SWORD_SWING_SPEED -- Animation is ALWAYS decoupled from hit timing
 	local kaNextFire = 0
-	local kaSync = 0
-	local kaSyncSrv = 0
-	local kaLastSrv = 0
-	local kaLastSend = 0
 	local lastProjectileTime = 0 -- Track when last projectile was fired
 	local glueRemote = {InvokeServer = function() end}
 	local projectileRemote = {InvokeServer = function() end}
@@ -6731,64 +7142,137 @@ run(function()
 		return preciseRemainder
 	end
 
-	local function getAttackDelay(meta)
-		local mode = (HitregMode and HitregMode.Value) or 'Stealth Mode'
-		local dynDelay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
-		local Speed = meta.sword and meta.sword.attackSpeed or 0.3
+	-- Every send is tracked until a melee damage event comes back for it. That feedback drives
+	-- the cadence: the aura sits on the 17-frame rhythm the server reliably accepts, backs off
+	-- to 19 frames if confirmations drop, and returns to the weapon's base once they recover.
+	-- It never sends below that base, because anything faster is silently ghosted server-side.
+	SwordTiming.Good = 0.2833
+	SwordTiming.Period = 0.2833
+	SwordTiming.Base = 0.2833
+	SwordTiming.MinPeriod = 0.2833
+	SwordTiming.MaxPeriod = 0.7
+	SwordTiming.ProbeAt = tick() + 5
+	SwordTiming.ProbeLeft = 0
+	SwordTiming.Weapon = nil
+	SwordTiming.Mode = nil
+	SwordTiming.Dt = 1 / 60
+	SwordTiming.Pending = {}
+	SwordTiming.LastSendSrv = 0
+	SwordTiming.WindowSends = 0
+	SwordTiming.WindowHits = 0
+	SwordTiming.WindowAt = tick() + 2
 
-		-- Stealth and Advanced sit on the safe spacing; Dynamic scales it by the slider but
-		-- never below the floor the server keeps up with.
-		local highMode = (mode == 'Dynamic') and 'Dynamic' or 'Stealth Mode'
-		local delay = (mode == 'Dynamic') and dynDelay or 100
-
-		-- This decouples hit registration from animation speed
-		local Spacing = SwordTiming.Calculate(Speed, highMode, delay, 0, 35)
-		if Speed == 0.3 then Spacing = math.max(Spacing, SwordTiming.HitFloor) end
-		return quantize240(Spacing)
-	end
-
-	-- 17-frame sends give ~35 hits per 10s. When two sends in a row land nothing the server
-	-- is rejecting them, so run one frame slower and probe the fast cadence again later.
-	SwordTiming.Fast = true
-	SwordTiming.MissStreak = 0
-	SwordTiming.ProbeAt = 0
-	SwordTiming.SentAt = 0
-	SwordTiming.ConfirmAt = 0
+	local CONFIRM_LIFETIME = 0.7
 
 	function SwordTiming.resolvePeriod(meta)
-		local base = getAttackDelay(meta)
-		if SwordTiming.Fast then return base end
-		return quantize240(base + 1 / 60)
+		local speed = meta and meta.sword and meta.sword.attackSpeed
+		local mode = (HitregMode and HitregMode.Value) or 'Stealth Mode'
+		if speed ~= SwordTiming.Weapon or mode ~= SwordTiming.Mode then
+			SwordTiming.Weapon = speed
+			SwordTiming.Mode = mode
+			SwordTiming.ProbeLeft = 0
+			local base
+			if mode == 'Stealth Mode' then
+				-- Slower weapons keep their own cadence; anything quicker sits on the 17-frame rhythm.
+				base = (type(speed) == 'number' and speed > 0.2833) and (speed + 0.002) or 0.2833
+				SwordTiming.ProbeAt = tick() + 5
+			else
+				local delay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
+				local highMode = (mode == 'Dynamic') and 'Dynamic' or 'Stealth Mode'
+				base = SwordTiming.Calculate(speed or 0.3, highMode, delay, 0, 35)
+			end
+			base = math.max(base, SwordTiming.MinPeriod)
+			base = math.min(base, SwordTiming.MaxPeriod)
+			SwordTiming.Base = base
+			SwordTiming.Good = base
+			SwordTiming.Period = base
+		elseif mode ~= 'Stealth Mode' then
+			local delay = (DynamicDelaySlider and DynamicDelaySlider.Value) or 100
+			local highMode = (mode == 'Dynamic') and 'Dynamic' or 'Stealth Mode'
+			local base = SwordTiming.Calculate(speed or 0.3, highMode, delay, 0, 35)
+			SwordTiming.Period = math.clamp(base, SwordTiming.MinPeriod, SwordTiming.MaxPeriod)
+		end
+		return quantize240(SwordTiming.Period)
 	end
 
 	function SwordTiming.noteSend()
-		SwordTiming.SentAt = tick()
-	end
-
-	function SwordTiming.checkConfirm()
-		local sentAt = SwordTiming.SentAt
-		if sentAt <= 0 or (tick() - sentAt) < 0.25 then return end
-		SwordTiming.SentAt = 0
-		if SwordTiming.ConfirmAt >= sentAt then
-			SwordTiming.MissStreak = 0
-		else
-			SwordTiming.MissStreak = SwordTiming.MissStreak + 1
-		end
-		if SwordTiming.Fast and SwordTiming.MissStreak >= 2 then
-			SwordTiming.Fast = false
-			SwordTiming.MissStreak = 0
-			SwordTiming.ProbeAt = tick() + 8
-		elseif not SwordTiming.Fast and tick() >= SwordTiming.ProbeAt then
-			SwordTiming.Fast = true
-			SwordTiming.MissStreak = 0
-		end
+		local now = tick()
+		SwordTiming.LastSendSrv = workspace:GetServerTimeNow()
+		local pending = SwordTiming.Pending
+		pending[#pending + 1] = now
+		if #pending > 12 then table.remove(pending, 1) end
+		SwordTiming.WindowSends = SwordTiming.WindowSends + 1
 	end
 
 	vape:Clean(vapeEvents.EntityDamageEvent.Event:Connect(function(damageTable)
-		if damageTable.fromEntity == lplr.Character and damageTable.damageType == 0 then
-			SwordTiming.ConfirmAt = tick()
+		if damageTable.fromEntity ~= lplr.Character or damageTable.damageType ~= 0 then return end
+		local pending = SwordTiming.Pending
+		local now = tick()
+		for i = 1, #pending do
+			if now - pending[i] <= CONFIRM_LIFETIME then
+				table.remove(pending, i)
+				SwordTiming.WindowHits = SwordTiming.WindowHits + 1
+				if SwordTiming.ProbeLeft > 0 and not (FastHits and FastHits.Enabled) then
+					SwordTiming.ProbeLeft = SwordTiming.ProbeLeft - 1
+					if SwordTiming.ProbeLeft == 0 then
+						-- The whole probe batch confirmed: adopt the faster cadence.
+						SwordTiming.Good = SwordTiming.Period
+						SwordTiming.ProbeAt = now + 8
+					end
+				end
+				return
+			end
 		end
 	end))
+
+	local function prunePending(now)
+		local pending = SwordTiming.Pending
+		while #pending > 0 and (now - pending[1]) > CONFIRM_LIFETIME do
+			table.remove(pending, 1)
+			-- A send that timed out while probing means the faster cadence was rejected.
+			if SwordTiming.ProbeLeft > 0 and not (FastHits and FastHits.Enabled) then
+				SwordTiming.ProbeLeft = 0
+				SwordTiming.Period = SwordTiming.Good
+				SwordTiming.ProbeAt = now + 15
+			end
+		end
+	end
+
+	function SwordTiming.checkConfirm()
+		local now = tick()
+		prunePending(now)
+
+		if now < SwordTiming.WindowAt then return end
+		SwordTiming.WindowAt = now + 2
+		local sends, hits = SwordTiming.WindowSends, SwordTiming.WindowHits
+		SwordTiming.WindowSends, SwordTiming.WindowHits = 0, 0
+		-- Projectile damage shares the melee event, so freeze the cadence while FastHits fires.
+		if SwordTiming.ProbeLeft > 0 then return end
+		if SwordTiming.Mode ~= 'Stealth Mode' then return end
+		if FastHits and FastHits.Enabled then return end
+		if sends < 3 then return end
+
+		local ratio = math.min(hits / sends, 1)
+		if ratio < 0.75 then
+			-- Confirmations are dropping: stretch by a frame, but never past base + 2 frames.
+			if SwordTiming.Period < SwordTiming.Good then
+				SwordTiming.Period = SwordTiming.Good
+			else
+				SwordTiming.Good = math.min(SwordTiming.Period + 1 / 60, SwordTiming.Base + 2 / 60)
+				SwordTiming.Period = SwordTiming.Good
+			end
+			SwordTiming.ProbeLeft = 0
+			SwordTiming.ProbeAt = now + 10
+		elseif ratio >= 0.95 and now >= SwordTiming.ProbeAt and SwordTiming.Period > SwordTiming.Base + 0.0001 then
+			-- Confirmations recovered: probe one frame back toward the weapon's base rhythm.
+			SwordTiming.Good = SwordTiming.Period
+			SwordTiming.ProbeLeft = 2
+			SwordTiming.Period = math.max(SwordTiming.Period - 1 / 60, SwordTiming.Base)
+			SwordTiming.ProbeAt = now + 10
+		elseif ratio >= 0.9 then
+			SwordTiming.Good = SwordTiming.Period
+		end
+	end
 
 	local function markAttackResult(success)
 		-- No-op: kept for compatibility
@@ -6833,6 +7317,20 @@ run(function()
 		elseif vape and vape.CreateNotification then
 			vape:CreateNotification(title, msg, 3)
 		end
+	end
+
+	-- The server validates the hit against where the target stands when the request arrives,
+	-- not where we saw it. Lead moving targets by half a round trip so the ray lands on them.
+	local function leadTargetPoint(tchar, basePos)
+		local ping = netPing()
+		if ping <= 0.02 then return basePos end
+		local part = tchar and (tchar:FindFirstChild('HumanoidRootPart') or tchar.PrimaryPart)
+		local vel = part and part.AssemblyLinearVelocity
+		if not vel then return basePos end
+		local flat = Vector3.new(vel.X, 0, vel.Z)
+		local speed = flat.Magnitude
+		if speed < 1 or speed > 60 then return basePos end
+		return basePos + flat * math.clamp(ping * 0.75, 0.01, 0.1)
 	end
 
 	local function FireAttackRemote(weapon, entityInstance, selfPos, targetPos)
@@ -7355,14 +7853,14 @@ run(function()
 		return _projectilesCache
 	end
 
+	local fhBusy = false
+
 	local function canShoot(proj)
-		return tick() > (FireRates[proj[1].itemType] or 0) and tick() > LastShot and not FastHitPending
+		return tick() > (FireRates[proj[1].itemType] or 0) and tick() > LastShot and not FastHitPending and not fhBusy
 	end
 
 	local sharedFastHitsRayParams = RaycastParams.new()
 	sharedFastHitsRayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-	local fhBusy = false
 
 	local function fhInAngle(v)
 		if not AngleSlider or AngleSlider.Value >= 360 then return true end
@@ -7377,13 +7875,37 @@ run(function()
 		return math.acos(math.clamp(flatLook.Unit:Dot(flat.Unit), -1, 1)) <= math.rad(AngleSlider.Value) / 2
 	end
 
+	local function fhAwaitHand(tool, timeout)
+		local name = tool.Name
+		local deadline = tick() + timeout
+		while tick() < deadline do
+			local hand = store.hand and store.hand.tool
+			if hand and (hand == tool or hand.Name == name) then return true end
+			task.wait()
+		end
+		return false
+	end
+
+	local function fhSwapTimeout()
+		return math.clamp(netPing() * 2 + 0.05, 0.1, 0.6)
+	end
+
+	-- The server only accepts the shot if its own hand already holds the tool, so wait for the
+	-- equip round trip instead of firing after a fixed sleep.
 	local function fhEquipAwait(tool)
 		if not tool or not tool.Parent then return false end
-		local success = pcall(switchItem, tool, 0.0475)
-		return success
+		local check = lplr.Character and lplr.Character:FindFirstChild('HandInvItem')
+		local handNow = store.hand and store.hand.tool
+		if check and check.Value == tool and handNow and (handNow == tool or handNow.Name == tool.Name) then return true end
+		if not pcall(switchItem, tool, 0) then return false end
+		local timeout = fhSwapTimeout()
+		if fhAwaitHand(tool, timeout) then return true end
+		pcall(function() bedwars.Client:Get(remotes.EquipItem):CallServerAsync({hand = tool}) end)
+		return fhAwaitHand(tool, math.min(timeout, 0.2))
 	end
 
 	local fhRestoreToken = 0
+	local fhShotSeq = 0
 	local function fhRestoreSword()
 		local sw = store.tools.sword
 		if not sw or not sw.tool or not sw.tool.Parent then return end
@@ -7410,6 +7932,7 @@ run(function()
 	end
 
 	local _fhVelHistory = {}
+	local _fhVelClock = 0
 	local _fhPing = 0.1
 	local _fhPingClock = 0
 	local _fhIdChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -7426,21 +7949,45 @@ run(function()
 	local function getFHPing()
 		if tick() - _fhPingClock < 1 then return _fhPing end
 		_fhPingClock = tick()
-		-- Use store.ping.total for direct ping measurement (more accurate than game stats)
-		local val = (store.ping and store.ping.total) or 0
-		_fhPing = math.clamp(val, 0.02, 1)
+		_fhPing = math.clamp(netPing(), 0.02, 1)
 		return _fhPing
 	end
 
 	local function smoothedVelocity(ent, targetPart)
-		local rawVel = targetPart.AssemblyLinearVelocity or targetPart.Velocity or Vector3.zero
+		local rawVel = targetPart.AssemblyLinearVelocity or Vector3.zero
 		local key = tostring(ent)
-		if not _fhVelHistory[key] then
-			_fhVelHistory[key] = rawVel
-		else
-			_fhVelHistory[key] = _fhVelHistory[key]:Lerp(rawVel, 0.35)
+		local now = tick()
+		local entry = _fhVelHistory[key]
+		if not entry then
+			_fhVelHistory[key] = {vel = rawVel, at = now}
+			if now - _fhVelClock > 2 then
+				_fhVelClock = now
+				for k, v in pairs(_fhVelHistory) do
+					if now - v.at > 5 then _fhVelHistory[k] = nil end
+				end
+			end
+			return rawVel, rawVel
 		end
-		return _fhVelHistory[key], rawVel
+		entry.vel = entry.vel:Lerp(rawVel, 0.35)
+		entry.at = now
+		return entry.vel, rawVel
+	end
+
+	local _owlCache, _owlClock = nil, 0
+	local function owlZeroGravity(ent)
+		if not (ent.Player and ent.Player:GetAttribute('IsOwlTarget')) then return false end
+		local now = tick()
+		if not _owlCache or now - _owlClock > 0.5 then
+			_owlClock = now
+			_owlCache = collectionService:GetTagged('Owl')
+		end
+		local uid = ent.Player.UserId
+		for _, owl in ipairs(_owlCache) do
+			if owl:GetAttribute('Target') == uid and owl:GetAttribute('Status') == 2 then
+				return true
+			end
+		end
+		return false
 	end
 
 	local function targetGravity(ent)
@@ -7452,19 +7999,21 @@ run(function()
 		if ent.Character and ent.Character.PrimaryPart and ent.Character.PrimaryPart:FindFirstChild('rbxassetid://8200754399') then
 			playerGravity = 6
 		end
-		if ent.Player and ent.Player:GetAttribute('IsOwlTarget') then
-			local _owls = collectionService:GetTagged('Owl')
-			if #_owls > 0 then
-				local _uid = ent.Player.UserId
-				for _, owl in ipairs(_owls) do
-					if owl:GetAttribute('Target') == _uid and owl:GetAttribute('Status') == 2 then
-						playerGravity = 0
-						break
-					end
-				end
-			end
+		if owlZeroGravity(ent) then
+			playerGravity = 0
 		end
 		return playerGravity
+	end
+
+	local function targetHop(ent)
+		local char = ent.Character
+		local hum = char and char:FindFirstChildOfClass('Humanoid')
+		if not hum then return nil end
+		local st = hum:GetState()
+		if st == Enum.HumanoidStateType.Jumping or st == Enum.HumanoidStateType.Freefall then
+			return 42.6
+		end
+		return nil
 	end
 
 	local function shootProjectile(item, ammo, projectile, itemMeta, selfPos, ent, ignoreSwitch)
@@ -7574,7 +8123,7 @@ run(function()
 		local calc, flightTime = prediction.SolveTrajectory(
 			originPos, projSpeed, gravity, leadPos, smoothVel,
 			playerGravity, ent.HipHeight or 2,
-			ent.Jumping and 42.6 or nil, sharedFastHitsRayParams
+			targetHop(ent), sharedFastHitsRayParams
 		)
 
 		local lifetime = tonumber(meta.predictionLifetimeSec) or tonumber(meta.lifetimeSec) or (projSpeed > 0 and math.min(3, 120 / projSpeed) or 3)
@@ -7621,14 +8170,29 @@ run(function()
 		)
 
 		FastHitPending = true
+		fhShotSeq = fhShotSeq + 1
+		local shotSeq = fhShotSeq
 		task.spawn(function()
-			local res = projectileRemote:InvokeServer(
+			-- The bow stays in hand until the server has taken the shot, then the sword comes back.
+			local ok, res = pcall(projectileRemote.InvokeServer, projectileRemote,
 				item.tool, ammo, projectile, shootPos, selfPos,
 				dir * projSpeed, id, shotMeta,
 				workspace:GetServerTimeNow() - 0.05
 			)
 			FastHitPending = false
-			if res then
+			if shotSeq == fhShotSeq then
+				if switched then
+					pcall(fhRestoreSword)
+					local deadline = tick() + 0.3
+					while tick() < deadline do
+						local hand = store.hand and store.hand.tool
+						if hand and not isProjectileTool(hand) then break end
+						task.wait()
+					end
+				end
+				fhBusy = false
+			end
+			if ok and res then
 				pcall(function() res.Parent = replicatedStorage end)
 				local sound = itemMeta.launchSound
 				sound = sound and sound[math.random(1, #sound)] or nil
@@ -7638,11 +8202,13 @@ run(function()
 				lastProjectileTime = workspace:GetServerTimeNow()
 			end
 		end)
-
-		if switched then
-			fhRestoreSword()
-			fhBusy = false
-		end
+		-- Never leave the auras gated if the remote never answers.
+		task.delay(0.45, function()
+			if shotSeq == fhShotSeq and fhBusy then
+				if switched then pcall(fhRestoreSword) end
+				fhBusy = false
+			end
+		end)
 
 		return true
 	end
@@ -7729,7 +8295,7 @@ run(function()
 		local calc, gFlight = prediction.SolveTrajectory(
 			originPos, gSpeed, gGrav, aimPos, smoothVel,
 			playerGravity, ent.HipHeight or 2,
-			ent.Jumping and 42.6 or nil, sharedFastHitsRayParams
+			targetHop(ent), sharedFastHitsRayParams
 		)
 		local gLife = tonumber(gmeta and gmeta.predictionLifetimeSec) or 2
 		if not calc or (gFlight and gFlight > gLife) then return false end
@@ -7802,7 +8368,7 @@ run(function()
 		local calc = prediction.SolveTrajectory(
 			originPos, fSpeed, fGrav, aimPos, smoothVel,
 			workspace.Gravity, ent.HipHeight or 2,
-			ent.Jumping and 42.6 or nil, sharedFastHitsRayParams
+			targetHop(ent), sharedFastHitsRayParams
 		)
 		if not calc then calc = aimPos end
 
@@ -7926,10 +8492,16 @@ run(function()
 
 		fhBusy = true
 		store._fhBusySince = workspace:GetServerTimeNow()
+		local handReady = false
 		local shotOk, shotErr = pcall(function()
-			if hotbarSwitch(bowSlot) then task.wait(0.0375) end
-			shootProjectile(item, ammo, projectile, itemMeta, selfPos, ent, true)
-			task.wait(0.075)
+			if hotbarSwitch(bowSlot) then
+				handReady = fhAwaitHand(item.tool, fhSwapTimeout())
+			end
+			-- Firing before the server sees the bow swap gets the shot rejected.
+			if handReady then
+				shootProjectile(item, ammo, projectile, itemMeta, selfPos, ent, true)
+				task.wait(0.075)
+			end
 		end)
 
 		-- Restore the exact slot selected before the projectile switch.
@@ -8073,10 +8645,11 @@ run(function()
 	end
 
 	local function attemptFire()
-		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.15 then return false end
+		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.5 then return false end
 
 		-- Let a projectile swap finish before swinging: a sword hit cancels the bolt.
-		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.12 then
+		local swapGap = math.max(0.12, netPing() + 0.06)
+		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < swapGap then
 			return false
 		end
 
@@ -8102,6 +8675,7 @@ run(function()
 		local targetPos = tchar.PrimaryPart.Position
 		local dist = (targetPos - selfPos).Magnitude
 		if dist > AttackRange.Value + 0 then return false end
+		local sendPos = leadTargetPoint(tchar, targetPos)
 
 		if AirHit and AirHit.Enabled and AirHitsChance and AirHitsChance.Value < 100 then
 			local hum = tchar:FindFirstChildOfClass('Humanoid')
@@ -8127,7 +8701,7 @@ run(function()
 			return false
 		end
 
-		if not FireAttackRemote(weaponInst, tchar, selfPos, targetPos) then
+		if not FireAttackRemote(weaponInst, tchar, selfPos, sendPos) then
 			markAttackResult(false)
 			return false
 		end
@@ -8142,17 +8716,6 @@ run(function()
 		-- Mark attack as successful for dynamic delay system
 		markAttackResult(true)
 
-		kaLastSend = srvNow
-		if kaLastSrv > 0 then
-			kaLastSrv = kaLastSrv + kaPeriod
-			if kaLastSrv < srvNow then
-				kaLastSrv = srvNow
-			end
-		else
-			kaLastSrv = srvNow
-		end
-		kaNextFire = 0
-
 		if bedwars.SwordController then
 			bedwars.SwordController.lastAttack = srvNow
 		end
@@ -8165,14 +8728,16 @@ run(function()
 		kaPeriod = HIT_PERIOD
 		animPeriod = NORMAL_SWORD_SWING_SPEED
 		kaNextFire = 0
-		kaLastSrv = workspace:GetServerTimeNow() - kaPeriod
-		kaLastSend = 0
-		SwordTiming.Fast = true
-		SwordTiming.MissStreak = 0
-		SwordTiming.SentAt = 0
+		SwordTiming.ProbeLeft = 0
+		SwordTiming.Pending = {}
+		SwordTiming.LastSendSrv = 0
+		SwordTiming.WindowSends = 0
+		SwordTiming.WindowHits = 0
+		SwordTiming.WindowAt = tick() + 2
 
 		-- Diagnostic only: throttle repeated attemptFire errors without changing attack logic.
 		local lastAttemptFireError = 0
+		local lastFrameAt = workspace:GetServerTimeNow()
 
 		killauraFireLoop = task.spawn(function()
 			while Killaura and Killaura.Enabled do
@@ -8180,10 +8745,20 @@ run(function()
 
 				SwordTiming.checkConfirm()
 
+				local nowSrv = workspace:GetServerTimeNow()
+				local frameDt = nowSrv - lastFrameAt
+				lastFrameAt = nowSrv
+				if frameDt <= 0 or frameDt > 0.1 then frameDt = SwordTiming.Dt end
+				SwordTiming.Dt = SwordTiming.Dt + (frameDt - SwordTiming.Dt) * 0.2
+
 				local updateOk, updateErr = pcall(function()
 					local sword, meta = getAttackData()
 					if sword and meta then
-						kaPeriod = SwordTiming.resolvePeriod(meta)
+						local period = SwordTiming.resolvePeriod(meta)
+						if period ~= kaPeriod then
+							kaPeriod = period
+							kaNextFire = (SwordTiming.LastSendSrv > 0 and SwordTiming.LastSendSrv + kaPeriod) or nowSrv
+						end
 					else
 						kaPeriod = HIT_PERIOD
 					end
@@ -8195,14 +8770,19 @@ run(function()
 					warn('[Killaura] timing update error: ' .. tostring(updateErr))
 				end
 
-				local heartbeatDt = 1 / 60
-				local target = kaPeriod - math.min(heartbeatDt * 0.5, kaPeriod * 0.06)
-				if (workspace:GetServerTimeNow() - kaLastSrv) >= target then
+				if kaNextFire == 0 then
+					kaNextFire = nowSrv
+				end
+				local early = math.min(SwordTiming.Dt * 0.45, kaPeriod * 0.05)
+				if nowSrv + early >= kaNextFire then
+					local sentBefore = SwordTiming.LastSendSrv
 					local ok, err = pcall(attemptFire)
 					if not ok and (tick() - lastAttemptFireError) >= 2 then
 						lastAttemptFireError = tick()
 						warn('[Killaura] attemptFire error: ' .. tostring(err))
 					end
+					-- Anchor the next send to the real send time so a missed attempt never queues a burst.
+					kaNextFire = (SwordTiming.LastSendSrv ~= sentBefore and SwordTiming.LastSendSrv or nowSrv) + kaPeriod
 				end
 			end
 		end)
@@ -8218,8 +8798,6 @@ run(function()
 		_fastAcqTime = 0
 		_fastAcqRes = nil
 		kaNextFire = 0
-			kaSync = 0
-		kaSyncSrv = 0
 		animPeriod = NORMAL_SWORD_SWING_SPEED
 	end
 
@@ -8331,7 +8909,7 @@ run(function()
 					local sort = sortmethods[Sort.Value]
 
 					local function buildList(range)
-						return entitylib.AllPosition({Range = range, Wallcheck = walls, Part = 'RootPart', Players = players, NPCs = npcs, Limit = 1, Sort = sort})
+						return entitylib.AllPosition({Range = range, Wallcheck = walls, Part = 'RootPart', Players = players, NPCs = npcs, Limit = 5, Sort = sort})
 					end
 
 					local attackPlrs = buildList(AttackRange.Value)
@@ -9074,8 +9652,9 @@ run(function()
 	end
 
 	function GrandFire.attempt()
-		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.15 then return false end
-		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.12 then return false end
+		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.5 then return false end
+		local swapGap = math.max(0.12, netPing() + 0.06)
+		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < swapGap then return false end
 		if tick() < GrandFire.ItemUntil then return false end
 
 		local v = GrandFire.resolveTarget()
@@ -9090,22 +9669,20 @@ run(function()
 		local targetPos = tchar.PrimaryPart.Position
 		local dist = (targetPos - selfPos).Magnitude
 		if dist > GrandAttackRange.Value then return false end
+		local sendPos = leadTargetPoint(tchar, targetPos)
 
 		if sword.tool.Name:find('summoner_claw') then
 			pcall(function() KaidaController:request(tchar) end)
 			return false
 		end
 
-		if not grandFireAttack(grandWeaponInstance(sword), tchar, selfPos, targetPos) then
+		if not grandFireAttack(grandWeaponInstance(sword), tchar, selfPos, sendPos) then
 			return false
 		end
 		SwordTiming.noteSend()
 
 		local srvNow = workspace:GetServerTimeNow()
-		GrandLastSrv = GrandLastSrv + GrandFire.Period
-		if GrandLastSrv < srvNow then
-			GrandLastSrv = srvNow
-		end
+		GrandLastSrv = srvNow
 		store.attackReach = (dist * 100) // 1 / 100
 		store.attackReachUpdate = tick() + 1
 		if bedwars.SwordController then
@@ -9119,14 +9696,19 @@ run(function()
 
 		GrandFire.Period = GRAND_HIT_PERIOD
 		GrandLastSrv = workspace:GetServerTimeNow() - GrandFire.Period
-		SwordTiming.Fast = true
-		SwordTiming.MissStreak = 0
-		SwordTiming.SentAt = 0
+		SwordTiming.ProbeLeft = 0
+		SwordTiming.Pending = {}
+		SwordTiming.LastSendSrv = 0
+		SwordTiming.WindowSends = 0
+		SwordTiming.WindowHits = 0
+		SwordTiming.WindowAt = tick() + 2
 		GrandFire.GraceTarget, GrandFire.GraceUntil = nil, 0
 		GrandFire.AcqTime, GrandFire.AcqRes = 0, nil
 		GrandFire.ItemUntil = 0
 		GrandFire.LastSword = nil
 		GrandFire.HoldTarget, GrandFire.HoldUntil = nil, 0
+
+		local lastFrameAt = workspace:GetServerTimeNow()
 
 		GrandFire.Loop = task.spawn(function()
 			while GrandKillaura and GrandKillaura.Enabled do
@@ -9135,15 +9717,29 @@ run(function()
 
 				SwordTiming.checkConfirm()
 
+				local nowSrv = workspace:GetServerTimeNow()
+				local frameDt = nowSrv - lastFrameAt
+				lastFrameAt = nowSrv
+				if frameDt <= 0 or frameDt > 0.1 then frameDt = SwordTiming.Dt end
+				SwordTiming.Dt = SwordTiming.Dt + (frameDt - SwordTiming.Dt) * 0.2
+
 				local sword, meta = grandGetAttackData()
+				local period
 				if sword and meta then
-					GrandFire.Period = SwordTiming.resolvePeriod(meta)
+					period = SwordTiming.resolvePeriod(meta)
+				else
+					period = GrandFire.Period
+				end
+				if period ~= GrandFire.Period then
+					GrandFire.Period = period
+					GrandLastSrv = (SwordTiming.LastSendSrv > 0 and SwordTiming.LastSendSrv) or nowSrv
 				end
 
-				local heartbeatDt = 1 / 60
-				local target = GrandFire.Period - math.min(heartbeatDt * 0.5, GrandFire.Period * 0.06)
-				if (workspace:GetServerTimeNow() - GrandLastSrv) >= target then
+				local early = math.min(SwordTiming.Dt * 0.45, GrandFire.Period * 0.05)
+				if nowSrv + early >= GrandLastSrv + GrandFire.Period then
+					local sentBefore = SwordTiming.LastSendSrv
 					pcall(GrandFire.attempt)
+					GrandLastSrv = (SwordTiming.LastSendSrv ~= sentBefore and SwordTiming.LastSendSrv) or nowSrv
 				end
 			end
 		end)
