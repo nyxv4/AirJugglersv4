@@ -4715,6 +4715,10 @@ run(function()
 		return dir.Unit * projSpeed
 	end
 
+	-- ProjectileAimbot borrows this solver when its own packet solve comes up empty: this is the
+	-- path that already lands SilentAim's shots, so PA can never aim worse than it.
+	vape.SilentAimSolve = solveSilent
+
 	SilentAim = vape.Categories.Blatant:CreateModule({
 		Name = 'SilentAim',
 		Function = function(callback)
@@ -4732,8 +4736,10 @@ run(function()
 					namecallHooked = true
 					namecall = hookmetamethod(game, '__namecall', newcclosure(function(...)
 						-- Cheap bail first: the wrapper stays installed for the whole session, so avoid
-						-- two extra C calls on every namecall in the game while SilentAim is off.
-						if not SilentAim.Enabled then
+						-- two extra C calls on every namecall in the game while both modules are off.
+						local paMod = vape.Modules and vape.Modules['ProjectileAimbot']
+						local paOn = paMod and paMod.Enabled
+						if not SilentAim.Enabled and not paOn then
 							return namecall(...)
 						end
 						if checkcaller() or getnamecallmethod() ~= 'InvokeServer' then
@@ -4742,7 +4748,11 @@ run(function()
 						local remote = ...
 						if typeof(remote) == 'Instance' and remote.Name == 'ProjectileFire' then
 							local args = table.pack(select(2, ...))
-							local ok, newVelocity = pcall(solveSilent, args)
+							local solver = (not SilentAim.Enabled) and vape.PASolveShot or solveSilent
+							local ok, newVelocity = pcall(solver or solveSilent, args)
+							if (not ok or typeof(newVelocity) ~= 'Vector3' or newVelocity.Magnitude <= 0) and solver ~= solveSilent then
+								ok, newVelocity = pcall(solveSilent, args)
+							end
 							if ok and typeof(newVelocity) == 'Vector3' and newVelocity.Magnitude > 0 then
 								local startedAt = os.clock()
 								pcall(awaitShotHand)
@@ -6307,8 +6317,18 @@ run(function()
 		if typeof(PositionFrom) ~= 'Vector3' then
 			PositionFrom = shotArgs[5]
 		end
-		return paSolve(shotArgs[1], shotArgs[3], PositionFrom, shotArgs[6])
+		local solved = paSolve(shotArgs[1], shotArgs[3], PositionFrom, shotArgs[6])
+		if not solved and vape.SilentAimSolve then
+			-- The same solver that already lands SilentAim's packets gets the shot when this
+			-- module's own solve comes up empty.
+			local ok, res = pcall(vape.SilentAimSolve, shotArgs)
+			if ok and typeof(res) == 'Vector3' and res.Magnitude > 0 then
+				solved = res
+			end
+		end
+		return solved
 	end
+	vape.PASolveShot = paSolveShot
 
 	local function paLocalProjectile(...)
 		local args = table.pack(...)
@@ -6327,6 +6347,13 @@ run(function()
 			if ProjectileAimbot and ProjectileAimbot.Enabled and type(ProjectileName) == 'string'
 				and typeof(Velocity) == 'Vector3' and Velocity.Magnitude > 0 then
 				local ok, AimVelocity = pcall(paSolve, store.hand and store.hand.tool, ProjectileName, PositionFrom, Velocity)
+				if (not ok or typeof(AimVelocity) ~= 'Vector3' or AimVelocity.Magnitude <= 0) and vape.SilentAimSolve then
+					local shotArgs = {args[1 + Offset], nil, ProjectileName, PositionFrom, nil, Velocity}
+					local ok2, res = pcall(vape.SilentAimSolve, shotArgs)
+					if ok2 and typeof(res) == 'Vector3' and res.Magnitude > 0 then
+						ok, AimVelocity = true, res
+					end
+				end
 				if ok and typeof(AimVelocity) == 'Vector3' and AimVelocity.Magnitude > 0 then
 					args[6 + Offset] = AimVelocity.Unit * Velocity.Magnitude
 					paLog('local', 'local shot aimed: ' .. ProjectileName)
@@ -6674,7 +6701,13 @@ run(function()
 			installShotHook()
 			if PADebug and PADebug.Enabled then
 				task.delay(0.5, function()
-					paLog('install', 'launch hook ' .. tostring(Hook ~= nil) .. ' | packet hook ' .. tostring(paOldNamecall ~= nil) .. ' | local projectile ' .. tostring(paLocalOld ~= nil))
+					local text = 'launch ' .. tostring(Hook ~= nil)
+						.. ' | packet ' .. tostring(paOldNamecall ~= nil)
+						.. ' | local ' .. tostring(paLocalOld ~= nil)
+					paLog('install', text)
+					-- The loader clears the console and notif() is a stub, so the GUI notification
+					-- pane is the only channel that actually reaches the player.
+					pcall(function() vape:CreateNotification('ProjectileAimbot', text, 8) end)
 				end)
 			end
 		end,
