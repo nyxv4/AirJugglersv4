@@ -5999,6 +5999,186 @@ run(function()
 		return inputService:GetMouseLocation()
 	end
 
+	-- Some builds never run the launch method for a shot, so the outgoing packet is
+	-- redirected as well. Only the direction is replaced: the speed, spawn position and
+	-- draw the game computed stay untouched, which is the shot the server accepts.
+	local paOldNamecall
+	local function paSolveShot(shotArgs)
+		if not ProjectileAimbot or not ProjectileAimbot.Enabled then
+			return nil
+		end
+		local Tool = shotArgs[1]
+		local ProjectileName = shotArgs[3]
+		local PositionFrom = shotArgs[4]
+		local NativeVelocity = shotArgs[6]
+		if typeof(PositionFrom) ~= 'Vector3' then
+			PositionFrom = shotArgs[5]
+		end
+		if typeof(PositionFrom) ~= 'Vector3' or typeof(NativeVelocity) ~= 'Vector3' or type(ProjectileName) ~= 'string' then
+			return nil
+		end
+		if ProjectileName:find('splash_potion', 1, true) then
+			if not Potions.Enabled then
+				return nil
+			end
+		elseif not OtherProjectiles.Enabled and not ProjectileName:find('arrow', 1, true)
+			and not (UseUmeko.Enabled and ProjectileName:find('^ninja_chakram')) then
+			return nil
+		end
+		local BlacklistName = (ProjectileName == 'glue_trap' or ProjectileName == 'glue_projectile') and 'gloop' or ProjectileName
+		if table.find(Blacklist.ListEnabled or {}, BlacklistName) then
+			return nil
+		end
+		local ProjectileMeta = bedwars.ProjectileMeta and bedwars.ProjectileMeta[ProjectileName]
+		if type(ProjectileMeta) ~= 'table' then
+			return nil
+		end
+		local Speed = NativeVelocity.Magnitude
+		if Speed <= 0.001 or Speed > 10000 then
+			return nil
+		end
+		local Gravity = tonumber(ProjectileMeta.gravitationalAcceleration) or 196.2
+		if Gravity < 1 then Gravity = 0 end
+		local Lifetime = tonumber(ProjectileMeta.predictionLifetimeSec) or tonumber(ProjectileMeta.lifetimeSec) or 3
+		local BowConstants = bedwars.BowConstantsTable or {}
+		local RelX, RelY, RelZ = BowConstants.RelX or 0.8, BowConstants.RelY or -0.6, BowConstants.RelZ or 0
+		local ToolMeta = Tool and bedwars.ItemMeta and bedwars.ItemMeta[Tool.Name]
+		local SourceMeta = ToolMeta and ToolMeta.projectileSource
+		local Relative = SourceMeta and SourceMeta.relativeOverride
+		if type(Relative) == 'table' then
+			RelX, RelY, RelZ = Relative.relX or 0, Relative.relY or 0, Relative.relZ or 0
+		end
+		local map = workspace:FindFirstChild('Map')
+		if map then
+			ArcCheck.FilterDescendantsInstances = {map}
+		end
+		local PartName = PartOption.Value == 'Dynamic' and (IsHeadshotProjectile(Tool and Tool.Name) and 'Head' or 'RootPart') or PartOption.Value
+
+		local function Solve(Ent)
+			if not Ent.Character or not Ent.RootPart then
+				return nil
+			end
+			local Balloons = Ent.Character:GetAttribute('InflatedBalloons')
+			local PlayerGravity = workspace.Gravity
+			if Balloons and Balloons > 0 then
+				PlayerGravity = balloonGravity(Balloons, Ent.Character)
+			end
+			if Ent.Character.PrimaryPart and Ent.Character.PrimaryPart:FindFirstChild('rbxassetid://8200754399') then
+				PlayerGravity = 6
+			end
+			if Ent.Player and Ent.Player:GetAttribute('IsOwlTarget') then
+				for _, v in collectionService:GetTagged('Owl') do
+					if v:GetAttribute('Target') == Ent.Player.UserId and v:GetAttribute('Status') == 2 then
+						PlayerGravity = 0
+						break
+					end
+				end
+			end
+
+			local AimPart = GetTargetPart(Ent, PartName)
+			local Velocity = Ent.RootPart.AssemblyLinearVelocity or Vector3.zero
+			if Horizontal.Value ~= 1 or Vertical.Value ~= 1 then
+				Velocity = Vector3.new(Velocity.X * Horizontal.Value, Velocity.Y * Vertical.Value, Velocity.Z * Horizontal.Value)
+			end
+			local Airborne = (Ent.Humanoid and Ent.Humanoid.FloorMaterial == Enum.Material.Air) or math.abs(Velocity.Y) > 0.01
+			local JumpVelocity = Ent.Jumping and 42.6 or nil
+			local AimTarget = AimPart.Position
+
+			local calc, flight
+			calc, _, flight = prediction.SolveTrajectory(
+				PositionFrom, Speed, Gravity,
+				AimTarget, Velocity,
+				PlayerGravity, Ent.HipHeight, JumpVelocity,
+				ArcCheck, Airborne,
+				Ent.RootPart.Position, Ent.RootPart,
+				nil, true
+			)
+			for _ = 1, 2 do
+				if not calc or not flight then break end
+				local Spawn = prediction.GetSpawnPosition(PositionFrom, calc, RelX, RelY, RelZ)
+				local corrected, _, correctedTime = prediction.SolveTrajectory(
+					Spawn, Speed, Gravity,
+					AimTarget, Velocity,
+					PlayerGravity, Ent.HipHeight, JumpVelocity,
+					ArcCheck, Airborne,
+					Ent.RootPart.Position, Ent.RootPart,
+					nil, true
+				)
+				if not corrected or not correctedTime then break end
+				calc = PositionFrom + (corrected - Spawn)
+				flight = correctedTime
+			end
+			if not calc or not flight or flight > Lifetime then
+				return nil
+			end
+
+			if Targets.Walls.Enabled then
+				local Spawn = prediction.GetSpawnPosition(PositionFrom, calc, RelX, RelY, RelZ)
+				if not prediction.IsTrajectoryClear(Spawn, (calc - PositionFrom).Unit * Speed, Gravity, flight * 0.97, ArcCheck) then
+					return nil
+				end
+			end
+
+			return CFrame.lookAt(PositionFrom, calc).LookVector * Speed
+		end
+
+		local Value, Attempts, Started = nil, 0, os.clock()
+		local Ent = entitylib.EntityMouse({
+			Part = 'RootPart',
+			Range = FOV.Value,
+			Players = Targets.Players.Enabled,
+			NPCs = Targets.NPCs and Targets.NPCs.Enabled or false,
+			Wallcheck = Targets.Walls.Enabled or nil,
+			Origin = PositionFrom,
+			MouseOrigin = GetMouseOrigin(),
+			Sort = sortmethods[Sort.Value],
+			Check = function(Candidate)
+				if MiloCheck.Enabled and IsDisguised(Candidate) then
+					return false
+				end
+				local MyRoot = entitylib.character and entitylib.character.RootPart
+				if MyRoot and (Candidate.RootPart.Position - MyRoot.Position).Magnitude > Distance.Value then
+					return false
+				end
+				if Attempts >= 10 or (Attempts > 0 and (os.clock() - Started) > 0.0015) then
+					return false
+				end
+				Attempts += 1
+				Value = Solve(Candidate)
+				return Value ~= nil
+			end
+		})
+
+		if Ent and Value then
+			if targetinfo and targetinfo.Targets then
+				targetinfo.Targets[Ent] = tick() + 1
+			end
+			return Value
+		end
+	end
+
+	local function installShotHook()
+		if paOldNamecall then
+			return
+		end
+		local wrap = newcclosure or function(f) return f end
+		local isCaller = checkcaller
+		paOldNamecall = hookmetamethod(game, '__namecall', wrap(function(...)
+			if getnamecallmethod() == 'InvokeServer' then
+				local remote = ...
+				if typeof(remote) == 'Instance' and remote.Name == 'ProjectileFire' and not (isCaller and isCaller()) then
+					local packed = table.pack(select(2, ...))
+					local ok, Velocity = pcall(paSolveShot, packed)
+					if ok and typeof(Velocity) == 'Vector3' and Velocity.Magnitude > 0 then
+						packed[6] = Velocity
+						return paOldNamecall(remote, table.unpack(packed, 1, packed.n))
+					end
+				end
+			end
+			return paOldNamecall(...)
+		end))
+	end
+
 	ProjectileAimbot = vape.Categories.Blatant:CreateModule({
 		Name = 'ProjectileAimbot',
 		Function = function(callback)
@@ -6100,7 +6280,6 @@ run(function()
 				local BaseSpeed = tonumber(ProjectileMeta.launchVelocity) or 100
 				local NativeSpeed = native and typeof(native.initialVelocity) == 'Vector3' and native.initialVelocity.Magnitude or 0
 				local NativeDraw = (native and tonumber(native.drawDurationSeconds)) or tonumber(LaunchData.drawDurationSeconds) or 0
-				local DeltaT = Lifetime
 
 				-- Bows scale with how long they were drawn. Crossbows and the other fixed-charge
 				-- launchers (multiShotChargeTime plus a reload) have no strength charge, so handing
@@ -6115,7 +6294,6 @@ run(function()
 						return nil
 					end
 					ProjectileSpeed, DrawDuration = NativeSpeed, NativeDraw
-					DeltaT = (native and tonumber(native.deltaT)) or Lifetime
 				elseif AutoCharge.Enabled or not Aim.Enabled then
 					ProjectileSpeed, DrawDuration = BaseSpeed, StrengthCharge
 				else
@@ -6219,7 +6397,7 @@ run(function()
 					return {
 						initialVelocity = CFrame.lookAt(OffsetPosition, calc).LookVector * ProjectileSpeed,
 						positionFrom = OffsetPosition,
-						deltaT = DeltaT,
+						deltaT = Lifetime,
 						gravitationalAcceleration = Gravity,
 						drawDurationSeconds = DrawDuration
 					}
@@ -6294,13 +6472,10 @@ run(function()
 					repeat
 						task.wait(0.25)
 					until not ProjectileAimbot.Enabled or installHook() or tick() > deadline
-					local controller = bedwars.ProjectileController
-					if ProjectileAimbot.Enabled and not (controller and controller.calculateImportantLaunchValues == Hook) then
-						ProjectileAimbot:SetEnabled(false)
-						notif('ProjectileAimbot', 'this game build no longer exposes calculateImportantLaunchValues, use SilentAim instead', 8)
-					end
 				end)
 			end
+			-- The packet path works on its own; the launch hook only refines it when present.
+			installShotHook()
 		end,
 		Tooltip = 'Silently adjusts your aim towards the enemy'
 	})
@@ -9923,6 +10098,17 @@ run(function()
 											local dir = (calc - origin).Unit
 											local shootPosition = (CFrame.new(origin, origin + dir) * CFrame.new(-(bow.RelX or 0.8), -(bow.RelY or -0.6), -(bow.RelZ or 0))).Position + dir * 2
 											local id = httpService:GenerateGUID(true)
+
+											-- The server drops a shot whose tool it has not equipped yet, so wait
+											-- for the inventory to confirm the hand instead of a fixed sleep.
+											if switched then
+												local deadline = tick() + 0.35
+												while tick() < deadline do
+													local handTool = store.hand and store.hand.tool
+													if handTool and (handTool == item.tool or handTool.Name == item.tool.Name) then break end
+													task.wait()
+												end
+											end
 											
 											if holdingCrossbow then
 												bedwars.ViewmodelController:playAnimation(bedwars.AnimationType.FP_CROSSBOW_FIRE)
@@ -9937,8 +10123,8 @@ run(function()
 												end
 											end
 											
-											bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPosition, id, dir * projSpeed, {drawDurationSec = charge})
-											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, dir * projSpeed, id, {drawDurationSec = charge, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
+											bedwars.ProjectileController:createLocalProjectile(meta, ammo, projectile, shootPosition, id, dir * projSpeed, {drawDurationSec = charge, drawDurationSeconds = charge})
+											local res = projectileRemote:InvokeServer(item.tool, ammo, projectile, shootPosition, pos, dir * projSpeed, id, {drawDurationSec = charge, drawDurationSeconds = charge, shotId = httpService:GenerateGUID(false)}, workspace:GetServerTimeNow() - 0.045)
 											if not res then
 												FireDelays[item.itemType] = tick()
 											else
