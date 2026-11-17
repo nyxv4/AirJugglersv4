@@ -6420,6 +6420,13 @@ run(function()
 			end
 
 			local function AimLaunchValues(self, LaunchData, WorldMeta, Origin, ShootPosition)
+				-- The game's own result is the ground truth for origin, gravity, speed and draw. Read
+				-- it first and only replace the direction once we have a solve that lands on the target.
+				local nativeOk, native = pcall(Old, self, LaunchData, WorldMeta, Origin, ShootPosition)
+				if not nativeOk then
+					native = nil
+				end
+
 				local LaunchPosition = ShootPosition
 				if typeof(LaunchPosition) ~= 'Vector3' then
 					local ok, res = pcall(self.getLaunchPosition, self, Origin)
@@ -6456,26 +6463,63 @@ run(function()
 				end
 
 				local Lifetime = WorldMeta and (ProjectileMeta.predictionLifetimeSec or ProjectileMeta.lifetimeSec or 3) or (ProjectileMeta.lifetimeSec or 3)
-				local Gravity = (tonumber(ProjectileMeta.gravitationalAcceleration) or 196.2) * (tonumber(LaunchData.gravityMultiplier) or 1)
+				local Gravity = (native and tonumber(native.gravitationalAcceleration)) or ((tonumber(ProjectileMeta.gravitationalAcceleration) or 196.2) * (tonumber(LaunchData.gravityMultiplier) or 1))
 				if Gravity < 1 then
 					Gravity = 0
 				end
-				-- The launch CatVape has always sent: full meta speed and the game's own draw,
-				-- unless AutoCharge rewrites both. Rebuilding from native velocity is what made
-				-- crossbow shots disappear, so keep this exact computation.
-				local SpeedMult = (AutoCharge.Enabled or not Aim.Enabled) and 1 or (tonumber(LaunchData.velocityMultiplier) or 1)
-				local ProjectileSpeed = (tonumber(ProjectileMeta.launchVelocity) or 100) * SpeedMult
-				local DrawDuration = AutoCharge.Enabled and 5 or LaunchData.drawDurationSeconds
-				local OffsetPosition = LaunchPosition + (ProjectileName == 'owl_projectile' and Vector3.zero or (typeof(LaunchData.fromPositionOffset) == 'Vector3' and LaunchData.fromPositionOffset or Vector3.zero))
 
 				local Tool = store.hand and store.hand.tool
+				local ToolMeta = Tool and bedwars.ItemMeta and bedwars.ItemMeta[Tool.Name]
+				local SourceMeta = ToolMeta and ToolMeta.projectileSource
+				local BaseSpeed = tonumber(ProjectileMeta.launchVelocity) or 100
+				local NativeSpeed = native and typeof(native.initialVelocity) == 'Vector3' and native.initialVelocity.Magnitude or 0
+				local NativeDraw = (native and tonumber(native.drawDurationSeconds)) or tonumber(LaunchData.drawDurationSeconds) or 0
+
+				-- Bows scale with how long they were drawn. Crossbows and the other fixed-charge
+				-- launchers (multiShotChargeTime plus a reload) have no strength charge, so handing
+				-- the server a made-up draw and speed gets the arrow eaten. Keep every native value
+				-- for those and only replace where we aim.
+				local StrengthCharge = tonumber(SourceMeta and SourceMeta.maxStrengthChargeSec)
+					or tonumber(SourceMeta and SourceMeta.maxDrawDurationSeconds)
+
+				local ProjectileSpeed, DrawDuration
+				if not StrengthCharge then
+					if NativeSpeed <= 0 then
+						return nil
+					end
+					ProjectileSpeed, DrawDuration = NativeSpeed, NativeDraw
+				elseif AutoCharge.Enabled or not Aim.Enabled then
+					ProjectileSpeed, DrawDuration = BaseSpeed, StrengthCharge
+				else
+					local MinScalar = tonumber(SourceMeta and SourceMeta.minStrengthScalar) or 1
+					if NativeSpeed > 0 then
+						ProjectileSpeed = NativeSpeed
+					else
+						local DrawPct = StrengthCharge > 0 and math.clamp(NativeDraw / StrengthCharge, 0, 1) or 0
+						ProjectileSpeed = BaseSpeed * (MinScalar + (1 - MinScalar) * DrawPct)
+					end
+					DrawDuration = NativeDraw
+				end
+				if not ProjectileSpeed or ProjectileSpeed <= 0 then
+					return nil
+				end
+
+				local SpawnOffset = ProjectileName == 'owl_projectile' and Vector3.zero or (typeof(LaunchData.fromPositionOffset) == 'Vector3' and LaunchData.fromPositionOffset or Vector3.zero)
+				local OffsetPosition = (native and typeof(native.positionFrom) == 'Vector3' and native.positionFrom) or (LaunchPosition + SpawnOffset)
+
+				local BowConstants = bedwars.BowConstantsTable or {}
+				local Relative = SourceMeta and SourceMeta.relativeOverride
+				local RelX, RelY, RelZ = BowConstants.RelX or 0.8, BowConstants.RelY or -0.6, BowConstants.RelZ or 0
+				if type(Relative) == 'table' then
+					RelX, RelY, RelZ = Relative.relX or 0, Relative.relY or 0, Relative.relZ or 0
+				end
+
 				local map = workspace:FindFirstChild('Map')
 				if map then
 					ArcCheck.FilterDescendantsInstances = {map}
 				end
+
 				local PartName = PartOption.Value == 'Dynamic' and (IsHeadshotProjectile(Tool and Tool.Name) and 'Head' or 'RootPart') or PartOption.Value
-				local HorizLead = tonumber(Horizontal.Value) or 1
-				local VertLead = tonumber(Vertical.Value) or 1
 
 				local function GetLaunchValues(Ent)
 					if not Ent.Character or not Ent.RootPart then
@@ -6504,51 +6548,48 @@ run(function()
 
 					local AimPart = GetTargetPart(Ent, PartName)
 					local Velocity = ProjectileName == 'telepearl' and Vector3.zero or AimPart.AssemblyLinearVelocity
-					local Airborne = (Ent.Humanoid and Ent.Humanoid.FloorMaterial == Enum.Material.Air) or math.abs(Ent.RootPart.AssemblyLinearVelocity.Y) > 0.01
-					local Hop = Ent.Jumping and 42.6 or nil
+					if Horizontal.Value ~= 1 or Vertical.Value ~= 1 then
+						Velocity = Vector3.new(Velocity.X * Horizontal.Value, Velocity.Y * Vertical.Value, Velocity.Z * Horizontal.Value)
+					end
+					local EntRootVelocity = Ent.RootPart.AssemblyLinearVelocity
+					local Airborne = (Ent.Humanoid and Ent.Humanoid.FloorMaterial == Enum.Material.Air) or math.abs(EntRootVelocity.Y) > 0.01
+					local JumpVelocity = Ent.Jumping and 42.6 or nil
 					local AimTarget = AimPart.Position
 
-					local calc, _, flight = prediction.SolveTrajectory(
+					-- The game spawns the projectile at the hand offset from positionFrom, not at
+					-- positionFrom itself. Solve, move the origin to the real spawn point, re-solve,
+					-- and shift the result back so the returned direction accounts for the offset.
+					local calc, flight
+					calc, _, flight = prediction.SolveTrajectory(
 						OffsetPosition, ProjectileSpeed, Gravity,
 						AimTarget, Velocity,
-						PlayerGravity, Ent.HipHeight, Hop,
+						PlayerGravity, Ent.HipHeight, JumpVelocity,
 						ArcCheck, Airborne,
 						Ent.RootPart.Position, Ent.RootPart,
 						nil, true
 					)
-
-					if calc and flight and (HorizLead ~= 1 or VertLead ~= 1) then
-						local Rise = (Velocity.Y * flight) - (PlayerGravity * flight * flight * 0.5)
-						local Lead = Vector3.new(Velocity.X * flight * (HorizLead - 1), Rise * (VertLead - 1), Velocity.Z * flight * (HorizLead - 1))
-						local adjusted, _, adjustedTime = prediction.SolveTrajectory(
-							OffsetPosition, ProjectileSpeed, Gravity,
-							AimTarget + Lead, Velocity,
-							PlayerGravity, Ent.HipHeight, Hop,
+					for _ = 1, 2 do
+						if not calc or not flight then break end
+						local Spawn = prediction.GetSpawnPosition(OffsetPosition, calc, RelX, RelY, RelZ)
+						local corrected, _, correctedTime = prediction.SolveTrajectory(
+							Spawn, ProjectileSpeed, Gravity,
+							AimTarget, Velocity,
+							PlayerGravity, Ent.HipHeight, JumpVelocity,
 							ArcCheck, Airborne,
 							Ent.RootPart.Position, Ent.RootPart,
 							nil, true
 						)
-						if adjusted then
-							calc, flight = adjusted, adjustedTime or flight
-						end
+						if not corrected or not correctedTime then break end
+						calc = OffsetPosition + (corrected - Spawn)
+						flight = correctedTime
 					end
 
 					if not calc or not flight or flight > Lifetime then
 						return nil
 					end
 
-					local AimOffset = calc - OffsetPosition
-					if AimOffset.Magnitude < 0.01 then
-						return nil
-					end
-					local LaunchVelocity = AimOffset.Unit * ProjectileSpeed
-
-					if Targets.Walls.Enabled and not prediction.IsTrajectoryClear(OffsetPosition, LaunchVelocity, Gravity, flight, ArcCheck) then
-						return nil
-					end
-
 					return {
-						initialVelocity = LaunchVelocity,
+						initialVelocity = CFrame.lookAt(OffsetPosition, calc).LookVector * ProjectileSpeed,
 						positionFrom = OffsetPosition,
 						deltaT = Lifetime,
 						gravitationalAcceleration = Gravity,
@@ -6556,7 +6597,7 @@ run(function()
 					}
 				end
 
-				local Values, Attempts, Started = nil, 0, os.clock()
+				local Values, Attempts = nil, 0
 				local Ent = entitylib.EntityMouse({
 					Part = 'RootPart',
 					Range = FOV.Value,
@@ -6573,7 +6614,7 @@ run(function()
 						if (Candidate.RootPart.Position - entitylib.character.RootPart.Position).Magnitude > Distance.Value then
 							return false
 						end
-						if Attempts >= 10 or (Attempts > 0 and (os.clock() - Started) > 0.0015) then
+						if Attempts >= 24 then
 							return false
 						end
 						Attempts += 1
