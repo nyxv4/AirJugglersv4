@@ -11,7 +11,7 @@ local _initArgs = ...
 if type(_initArgs) ~= "table" then _initArgs = {} end
 
 local args = _initArgs
-local bootstrapCommit = type(args) == "table" and args.Commit or nil
+local bootstrapCommit = type(args.Commit) == 'string' and args.Commit ~= '' and args.Commit or nil
 if type(args) == "table" and args.Closet then
 	getgenv().Closet = true
 else
@@ -38,19 +38,23 @@ local isfile = isfile or function(file)
 end
 local delfile = delfile or function(file) writefile(file, '') end
 
+for _, folder in {'NYX', 'NYX/games', 'NYX/profiles', 'NYX/assets', 'NYX/libraries', 'NYX/guis'} do
+	if not isfolder(folder) then makefolder(folder) end
+end
+
 local function checkForUpdates()
 	local watermark = '--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.'
-	for _, folder in {'NYX', 'NYX/games', 'NYX/profiles', 'NYX/assets', 'NYX/libraries', 'NYX/guis'} do
-		if not isfolder(folder) then makefolder(folder) end
-	end
 	local current = isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt') or ''
 	local ok, res = pcall(function()
 		return game:HttpGet('https://api.github.com/repos/nyxv4/nyx1/commits/main', true)
 	end)
 	local latest = ok and type(res) == 'string' and res:match('"sha"%s*:%s*"(%x+)"')
 	if not latest or #latest ~= 40 then
-		if current == '' then writefile('NYX/profiles/commit.txt', 'main') end
-		return nil
+		if current == '' then
+			current = 'main'
+			writefile('NYX/profiles/commit.txt', current)
+		end
+		return current
 	end
 	if latest == current then return latest end
 	for _, folder in {'NYX', 'NYX/games', 'NYX/guis', 'NYX/libraries'} do
@@ -66,7 +70,7 @@ local function checkForUpdates()
 end
 
 local latestCommit = bootstrapCommit
-if not shared.VapeDeveloper then
+if not shared.VapeDeveloper and not bootstrapCommit then
 	local ok, res = pcall(checkForUpdates)
 	if ok and res then latestCommit = res end
 end
@@ -84,14 +88,13 @@ if bootstrapCommit and bootstrapCommit ~= '' then
 			end
 		end
 		writefile('NYX/profiles/commit.txt', pinned)
-		pcall(writefile, 'NYX/profiles/latest.txt', pinned)
 		latestCommit = pinned
 	end
 end
 if bootstrapCommit and #bootstrapCommit == 40 then latestCommit = bootstrapCommit end
 
 local function resolveBuildCommit()
-	if type(latestCommit) == 'string' and #latestCommit == 40 then return latestCommit end
+	if type(latestCommit) == 'string' and latestCommit ~= '' then return latestCommit end
 	local cached = isfile('NYX/profiles/latest.txt') and readfile('NYX/profiles/latest.txt') or ''
 	if type(cached) == 'string' and #cached == 40 then return cached end
 	return 'main'
@@ -177,36 +180,34 @@ local httpService = cloneref(game:GetService('HttpService'))
 local teleportService = cloneref(game:GetService('TeleportService'))
 
 local function downloadFile(path, func, forceRef)
-	if forceRef or not isfile(path) or readfile(path) == '' then
+	local cached = (isfile(path) and readfile(path)) or ''
+	local commit = forceRef or (isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt')) or 'main'
+	if commit == '' then commit = 'main' end
+	local watermark = '--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.\n'
+	local cachePrefix = #commit == 40 and commit:match('^%x+$') and (watermark..'--NYXCOMMIT:'..commit..'\n') or nil
+	local current = cachePrefix and cached:sub(1, #cachePrefix) == cachePrefix
+	if cached == '' or (forceRef and not current) then
 		local res
-		local success = false
 		for attempt = 1, 3 do
 			local suc, result = pcall(function()
-				local commit = forceRef
-				if commit == nil or commit == '' then
-					commit = isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt')
-				end
-				if commit == nil or commit == '' then commit = 'main' end
 				return game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/' .. commit .. '/' .. select(1, path:gsub('^NYX/', '')), true)
 			end)
-			if suc and type(result) == 'string' and #result > 0 and result ~= '404: Not Found' then
+			if suc and type(result) == 'string' and #result > 0 and result ~= '404: Not Found' and not result:match('^%d%d%d:') and not result:match('^%s*<') then
 				res = result
-				success = true
 				break
 			end
-			task.wait(1)
+			if suc and result == '404: Not Found' then break end
+			if attempt < 3 then task.wait(1) end
 		end
-		if not success then
-			error('Failed to download ' .. path .. ' after 3 attempts')
-		end
-		if path:find('%.lua') then
-			res = '--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.\n' .. res
-		end
+		if not res then error('Failed to download ' .. path) end
+		if path:find('%.lua') then res = (cachePrefix or watermark)..res end
 		local dir = path:match('^(.*)/[^/]+$')
 		if dir and not isfolder(dir) then makefolder(dir) end
 		writefile(path, res)
+		cached = res
 	end
-	return (func or readfile)(path)
+	if func then return func(path) end
+	return cached
 end
 
 local function fetchFile(path, commit)
@@ -292,7 +293,36 @@ if not isfolder('NYX/assets/' .. gui) then
 end
 
 local guiPath = 'NYX/guis/' .. gui .. '.lua'
-local guiSource = fetchFile(guiPath, resolveBuildCommit())
+local buildCommit = resolveBuildCommit()
+local gameFileId = (game.GameId == 2619619496) and (game.PlaceId == 6872265039 and 6872265039 or 6872274481) or (game.GameId == 10516888336 and 10516888336 or game.PlaceId)
+local gamePath = 'NYX/games/' .. gameFileId .. '.lua'
+local sourcePaths = {guiPath}
+if not shared.VapeIndependent then
+	table.insert(sourcePaths, 'NYX/games/universal.lua')
+	if not shared.VapeDeveloper or (isfile(gamePath) and readfile(gamePath) ~= '') then
+		table.insert(sourcePaths, gamePath)
+	end
+end
+
+local sources = {}
+for _, path in sourcePaths do
+	local entry = {}
+	sources[path] = entry
+	task.spawn(function()
+		entry.Ok, entry.Source = pcall(fetchFile, path, buildCommit)
+		entry.Done = true
+	end)
+end
+
+local function awaitSource(path)
+	local entry = sources[path]
+	if not entry then return end
+	while not entry.Done do task.wait() end
+	sources[path] = nil
+	if entry.Ok then return entry.Source end
+end
+
+local guiSource = awaitSource(guiPath)
 if not guiSource then
 	error('[NYX] could not download ' .. guiPath .. ' and no cached copy exists')
 end
@@ -367,19 +397,14 @@ if getgenv().Closet then
 end
 
 if not shared.VapeIndependent then
-	local buildCommit = resolveBuildCommit()
-	local universalSrc = fetchFile('NYX/games/universal.lua', buildCommit)
+	local universalSrc = awaitSource('NYX/games/universal.lua')
 	if not universalSrc then
 		error('[NYX] could not download universal.lua')
 	end
 	loadstring(universalSrc, 'universal')()
-	local gameFileId = (game.GameId == 2619619496) and (game.PlaceId == 6872265039 and 6872265039 or 6872274481) or (game.GameId == 10516888336 and 10516888336 or game.PlaceId)
+	local gameSrc = awaitSource(gamePath)
 
-	if isfile('NYX/games/' .. gameFileId .. '.lua') and #readfile('NYX/games/' .. gameFileId .. '.lua') > 0 then
-		local gameSrc = fetchFile('NYX/games/' .. gameFileId .. '.lua', buildCommit)
-		if not gameSrc then
-			error('[NYX] could not download ' .. gameFileId .. '.lua and no cached copy exists')
-		end
+	if gameSrc then
 		local gameFunc, gameErr = loadstring(gameSrc, tostring(gameFileId))
 		if not gameFunc then
 			local ls = gameSrc:split('\n')
@@ -420,15 +445,8 @@ if not shared.VapeIndependent then
 			error('[NYX] syntax error in ' .. gameFileId .. '.lua\n' .. msg .. where .. ctx)
 		end
 		gameFunc(...)
-	else
-		if not shared.VapeDeveloper then
-			local ok, res = pcall(function()
-				return fetchFile('NYX/games/' .. gameFileId .. '.lua', buildCommit)
-			end)
-			if ok and type(res) == 'string' and #res > 0 then
-				loadstring(res, tostring(gameFileId))(...)
-			end
-		end
+	elseif isfile(gamePath) and readfile(gamePath) ~= '' then
+		error('[NYX] could not load ' .. gameFileId .. '.lua')
 	end
 	finishLoading()
 else
