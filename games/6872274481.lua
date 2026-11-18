@@ -9538,6 +9538,7 @@ run(function()
 		if GrandAttackable.Enabled and not grandAttackable() then return false end
 
 		local sword = GrandLimit.Enabled and store.hand or store.tools.sword
+		if not sword or not sword.tool then sword = store.hand end
 		if not sword or not sword.tool then return false end
 
 		local meta = bedwars.ItemMeta[sword.tool.Name]
@@ -9656,8 +9657,19 @@ run(function()
 							Sort = sortmethods[GrandSort.Value] or sortmethods.Distance
 						})
 
+						if Killaura and Killaura.Enabled and store.KillauraTarget and #plrs > 1 then
+							local others = {}
+							for _, ent in plrs do
+								if ent ~= store.KillauraTarget then
+									table.insert(others, ent)
+								end
+							end
+							if #others > 0 then plrs = others end
+						end
+
 						if #plrs > 0 then
-							if not fhBusy and not regentBusy then
+							if not fhBusy and not regentBusy and (not store.hand or store.hand.tool ~= sword.tool) and (tick() - (store._grandSwitch or 0)) > 0.25 then
+								store._grandSwitch = tick()
 								switchItem(sword.tool, 0)
 							end
 							local selfpos = selfRoot.Position
@@ -9696,7 +9708,9 @@ run(function()
 								end
 
 								if delta.Magnitude > GrandAttackRange.Value then continue end
-								if delta.Magnitude < 14.4 and (tick() - swingCooldown) < math.max(GrandChargeTime.Value, 0.02) then continue end
+								-- Pace every range, not just in-reach targets: a burst past the server
+								-- floor gets the next few seconds of hits dropped or muted.
+								if (tick() - swingCooldown) < math.max(GrandChargeTime.Value, 0.296) then continue end
 
 								local actualRoot = v.Character and v.Character.PrimaryPart
 								if actualRoot then
