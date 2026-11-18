@@ -8603,7 +8603,7 @@ run(function()
 		return resolved
 	end
 
-	local function attemptFire(forcedTarget, rangeLimit)
+	local function attemptFire(forcedTarget, rangeLimit, frameDelta)
 		-- A sword hit while a bow/other projectile is in hand cancels the shot; the player
 		-- picked that item on purpose, so the aura stands down until they switch back.
 		if isProjectileTool(liveHandTool()) then return false end
@@ -8687,7 +8687,8 @@ run(function()
 
 		if kaLastSrv > 0 then
 			kaLastSrv = kaLastSrv + kaPeriod
-			if kaLastSrv < srvNow then kaLastSrv = srvNow end
+			-- Preserve at most one frame of lateness; resync after stalls or pauses.
+			if srvNow - kaLastSrv > math.min(frameDelta or 0, kaPeriod * 0.5) then kaLastSrv = srvNow end
 		else
 			kaLastSrv = srvNow
 		end
@@ -8717,7 +8718,7 @@ run(function()
 				-- frame delta so high-refresh clients do not send further ahead than they need to.
 				local target = kaPeriod - math.min(dt * 0.5, kaPeriod * 0.06)
 				if (workspace:GetServerTimeNow() - kaLastSrv) >= target then
-					local ok, err = pcall(attemptFire)
+					local ok, err = pcall(attemptFire, nil, nil, dt)
 					if not ok and (tick() - lastAttemptFireError) >= 2 then
 						lastAttemptFireError = tick()
 						warn('[Killaura] attemptFire error: ' .. tostring(err))
