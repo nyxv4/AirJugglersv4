@@ -10170,6 +10170,7 @@ run(function()
 end)
 -- CatVape compatibility shims for the verbatim Killaura port (libraries/helpers the hub does not ship)
 run(function()
+	if shared.NYXSetIdentity then pcall(shared.NYXSetIdentity, 8) end
 	local getProjectiles, isAfk = (function()
 		local function projectileMatches(enabled, ...)
 			for _, wanted in enabled or {} do
@@ -10519,7 +10520,10 @@ run(function()
 			return (a.Entity.Health or math.huge) < (b.Entity.Health or math.huge)
 		end
 	}, {__index = sortmethods})
-	local loadOk, loadErr = pcall(function()
+	local function loadTrace(err)
+		return tostring(err) .. '\n' .. tostring(debug.traceback(nil, 2))
+	end
+	local loadOk, loadErr = xpcall(function()
 	local LocalPlayer = lplr
 	local Entity = entitylib
 	local Camera = gameCamera

@@ -2,18 +2,13 @@ repeat task.wait() until game:IsLoaded()
 if type(setthreadidentity) == 'function' then
 	getgenv().NYXSetIdentity = setthreadidentity
 	shared.NYXSetIdentity = setthreadidentity
+	pcall(setthreadidentity, 8)
 end
 if shared.vape then pcall(function() shared.vape:Uninject() end) end
 
 local LOADER_URL = "https://raw.githubusercontent.com/nyxv4/nyx1/main/downloader.lua" 
 local _initArgs = ...
 if type(_initArgs) ~= "table" then _initArgs = {} end
-
-if identifyexecutor then
-	if table.find({'Wave', 'Seliware', 'Volt'}, ({identifyexecutor()})[1]) then
-		getgenv().setthreadidentity = nil
-	end
-end
 
 local args = _initArgs
 local bootstrapCommit = type(args) == "table" and args.Commit or nil
