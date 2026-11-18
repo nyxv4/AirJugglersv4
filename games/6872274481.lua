@@ -1578,8 +1578,12 @@ run(function()
 		local call = OldGet(self, remoteName, ...)
 
 		if remoteName == 'SwordHit' or remoteName == remotes.AttackEntity then
+			local callInstance
+			pcall(function()
+				callInstance = call.instance
+			end)
 			return {
-				instance = call.instance,
+				instance = callInstance,
 				SendToServer = function(_, attackTable, ...)
 					if (store.KillauraTarget or tick() - (store.kaTargetAt or 0) < 0.2) and not store.kaSending then
 						return
@@ -1604,8 +1608,12 @@ run(function()
 				end
 			}
 		elseif remoteName == 'OwlAiming' then
+			local callInstance
+			pcall(function()
+				callInstance = call.instance
+			end)
 			return {
-				instance = call.instance,
+				instance = callInstance,
 				SendToServer = function(_, data, ...)
 					store.owlAiming = type(data) == 'table' and data.starting == true
 					return call:SendToServer(data, ...)
@@ -10060,6 +10068,7 @@ end)
 -- CatVape compatibility shims for the verbatim Killaura port (libraries/helpers the hub does not ship)
 run(function()
 	if shared.NYXSetIdentity then pcall(shared.NYXSetIdentity, 8) end
+	if type(setthreadidentity) == 'function' then pcall(setthreadidentity, 8) end
 	local getProjectiles, isAfk = (function()
 		local function projectileMatches(enabled, ...)
 			for _, wanted in enabled or {} do
@@ -10283,9 +10292,16 @@ run(function()
 					end)
 					remote = ok and remote or nil
 
+					local remoteInstance = nil
+					if remote then
+						pcall(function()
+							remoteInstance = remote.instance
+						end)
+					end
+
 					entry = {
 						Remote = remote,
-						instance = remote and remote.instance or nil,
+						instance = remoteInstance,
 						Fire = function(_, method, ...)
 							if not remote then
 								error('remote "'..tostring(remoteName)..'" is unavailable', 0)
@@ -10509,7 +10525,12 @@ run(function()
 	ArcCheck.FilterType = Enum.RaycastFilterType.Exclude
 	local AttackRemote = {FireServer = function() end}
 	local SwordSwingMiss = {FireServer = function() end}
-	local ProjectileRemote = bedwars.Handler:Get("ProjectileFire")
+	local ProjectileRemote = (function()
+		local ok, res = pcall(function()
+			return bedwars.Handler:Get("ProjectileFire")
+		end)
+		return ok and res or {Fire = function() return false end, GetRateLimit = function() return 216 end}
+	end)()
 	local FastHitPending, LastShot = nil, 0
 	local ArrivalFloor: number = SwordTiming.ArrivalFloor
 	local HitBudget, HitFloor, GapFloor = 0.2, SwordTiming.HitFloor, SwordTiming.GapFloor
@@ -10644,9 +10665,14 @@ run(function()
 	end
 	
 	task.spawn(function()
-		AttackRemote = bedwars.Handler:Get("SwordHit")
-		SwordSwingMiss = bedwars.Handler:Get("SwordSwingMiss")
-		HitBudget = 60 / AttackRemote:GetRateLimit()
+		pcall(function()
+			AttackRemote = bedwars.Handler:Get("SwordHit")
+			SwordSwingMiss = bedwars.Handler:Get("SwordSwingMiss")
+			local limit = AttackRemote.GetRateLimit and AttackRemote:GetRateLimit() or 216
+			if type(limit) == 'number' and limit > 0 then
+				HitBudget = 60 / limit
+			end
+		end)
 	end)
 	
 	local FireRates: {[string]: number} = {}
@@ -11884,7 +11910,236 @@ end, loadTrace)
 			notif('NYX', 'CatKillAura failed to load: '..tostring(loadErr), 15, 'alert')
 		end
 	end)
-						
+
+run(function()
+	local BedPatcher
+	local Mode
+	local Whitelist
+	local PlaceRange
+	local Radius
+	local Wool
+	local Switch
+	local NoAnimation
+	local Limit
+	local Layout, Adjacent = {}, {}
+	local PlaceAnimation = 0
+	pcall(function()
+		PlaceAnimation = bedwars.BlockController:getAnimationController():getAssetId(0)
+	end)
+	local Placing, Old = false
+
+	for _, v in Enum.NormalId:GetEnumItems() do
+		table.insert(Adjacent, Vector3.FromNormalId(v) * 3)
+	end
+
+	local function getPlacedBlock(position)
+		if not position then return end
+		local rounded = bedwars.BlockController:getBlockPosition(position)
+		local ok, block = pcall(function()
+			return bedwars.BlockController:getStore():getBlockAt(rounded)
+		end)
+		return ok and block or nil, rounded
+	end
+
+	local function getBedNear()
+		local localPosition = entitylib.isAlive and entitylib.character.RootPart.Position or Vector3.zero
+		for _, v in collectionService:GetTagged('bed') do
+			if (localPosition - v.Position).Magnitude < (PlaceRange.Value + Radius.Value)
+				and v:GetAttribute('Team'..(lplr:GetAttribute('Team') or -1)..'NoBreak') then
+				return v
+			end
+		end
+		return nil
+	end
+
+	local function getBlock(itemType)
+		if Limit.Enabled then
+			local hand = store.hand and store.hand.toolType == 'block' and store.hand.tool or nil
+			if hand and (not Wool.Enabled or hand.Name:find('wool')) and table.find(Whitelist.ListEnabled, hand.Name:find('wool') and 'wool' or hand.Name) then
+				return hand.Name, hand
+			end
+			return nil
+		end
+
+		local best, health
+		for _, v in store.inventory.inventory.items do
+			local block = bedwars.ItemMeta[v.itemType] and bedwars.ItemMeta[v.itemType].block
+			if not block or (Wool.Enabled and not v.itemType:find('wool')) then continue end
+			if not table.find(Whitelist.ListEnabled, v.itemType:find('wool') and 'wool' or v.itemType) then continue end
+			if v.itemType == itemType then
+				return v.itemType, v.tool
+			end
+			if not health or (block.health or 0) > health then
+				best, health = v, block.health or 0
+			end
+		end
+		return best and best.itemType or nil, best and best.tool or nil
+	end
+
+	local function scanBed(bed)
+		table.clear(Layout)
+		for _, v in store.blocks do
+			if not v:HasTag('bed') and (v.Position - bed.Position).Magnitude <= Radius.Value then
+				Layout[v.Position] = v.Name
+			end
+		end
+
+		local holes = {}
+		for position, name in Layout do
+			for _, offset in Adjacent do
+				local cell = position + offset
+				if Layout[cell] or holes[cell] or getPlacedBlock(cell) then
+					continue
+				end
+
+				local walls = 0
+				for _, side in Adjacent do
+					if Layout[cell + side] then
+						walls += 1
+					end
+				end
+
+				if walls >= 4 then
+					holes[cell] = name
+				end
+			end
+		end
+
+		for position, name in holes do
+			Layout[position] = name
+		end
+	end
+
+	BedPatcher = vape.Categories.World:CreateModule({
+		Name = 'BedPatcher',
+		Function = function(callback)
+			if callback then
+				local bed
+				Old = bedwars.AnimationUtil.playAnimation
+				bedwars.AnimationUtil.playAnimation = function(self, player, assetId, config)
+					if Placing and NoAnimation.Enabled and assetId == PlaceAnimation then
+						return
+					end
+					return Old(self, player, assetId, config)
+				end
+
+				BedPatcher:Clean(collectionService:GetInstanceAddedSignal('block'):Connect(function(block)
+					if bed and not block:HasTag('bed') and (block.Position - bed.Position).Magnitude <= Radius.Value then
+						Layout[block.Position] = block.Name
+					end
+				end))
+
+				BedPatcher:Clean(vapeEvents.BreakBlockEvent.Event:Connect(function(blockTable)
+					local player = blockTable.player
+					if player and (player == lplr or player:GetAttribute('Team') == lplr:GetAttribute('Team')) then
+						local ref = blockTable.blockRef and blockTable.blockRef.blockPosition
+						if ref then
+							local world = ref * 3
+							if not Layout[world] and Layout[ref] then
+								world = ref
+							end
+							Layout[world] = nil
+						end
+					end
+				end))
+
+				repeat
+					local found = getBedNear()
+					if found ~= bed then
+						bed = found
+						if bed then
+							scanBed(bed)
+						else
+							table.clear(Layout)
+						end
+					end
+
+					if bed and entitylib.isAlive then
+						local localPosition = entitylib.character.RootPart.Position
+						local holes = {}
+
+						for position, name in Layout do
+							if (localPosition - position).Magnitude <= PlaceRange.Value and not getPlacedBlock(position) then
+								table.insert(holes, {position, name})
+							end
+						end
+
+						table.sort(holes, function(a, b)
+							return (a[1] - bed.Position).Magnitude < (b[1] - bed.Position).Magnitude
+						end)
+
+						for _, v in holes do
+							local position, itemType = unpack(v)
+							if getPlacedBlock(position) then
+								continue
+							end
+
+							local item, tool = getBlock(itemType)
+							if not item then
+								break
+							end
+
+							if Switch.Enabled and tool and switchItem(tool, 0) then
+								task.wait()
+							end
+
+							Placing = true
+							bedwars.placeBlock(position, item)
+							Placing = false
+							task.wait(1 / (bedwars.SharedConstants.BLOCK_PLACE_CPS or 50))
+						end
+					elseif not bed and Mode.Value == 'On Key' then
+						notif('BedPatcher', 'Unable to locate bed', 5)
+						BedPatcher:Toggle()
+						break
+					end
+
+					task.wait(0.5)
+					if Mode.Value == 'On Key' then
+						BedPatcher:Toggle()
+						break
+					end
+				until not BedPatcher.Enabled
+			else
+				bedwars.AnimationUtil.playAnimation = Old
+				Placing = false
+			end
+		end,
+		Tooltip = 'Puts back the blocks an enemy broke out of your bed defense.'
+	})
+	Mode = BedPatcher:CreateDropdown({
+		Name = 'Mode',
+		List = {'Toggle', 'On Key'}
+	})
+	Whitelist = BedPatcher:CreateTextList({
+		Name = 'Whitelist',
+		Default = {'wool', 'obsidian'}
+	})
+	PlaceRange = BedPatcher:CreateSlider({
+		Name = 'Place Range',
+		Min = 1,
+		Max = 60,
+		Default = 15
+	})
+	Radius = BedPatcher:CreateSlider({
+		Name = 'Defense Radius',
+		Min = 3,
+		Max = 30,
+		Default = 15,
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end,
+		Tooltip = 'How far out from the bed still counts as your defense'
+	})
+	Wool = BedPatcher:CreateToggle({Name = 'Wool only', Tooltip = 'Only uses wools to patch.'})
+	Switch = BedPatcher:CreateToggle({Name = 'Auto Switch'})
+	NoAnimation = BedPatcher:CreateToggle({
+		Name = 'No Animation',
+		Tooltip = 'Hides the arm swing every patched block would otherwise play'
+	})
+	Limit = BedPatcher:CreateToggle({Name = 'Limit to item'})
+end)
+
 run(function()
 	local ProjectileAura
 	local Targets
