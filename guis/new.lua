@@ -261,24 +261,6 @@ local function checkKeybinds(compare, target, key)
 	return false
 end
 
-local function createDownloader(text)
-	if mainapi.Loaded ~= true then
-		local downloader = mainapi.Downloader
-		if not downloader then
-			downloader = Instance.new('TextLabel')
-			downloader.Size = UDim2.new(1, 0, 0, 40)
-			downloader.BackgroundTransparency = 1
-			downloader.TextStrokeTransparency = 0
-			downloader.TextSize = 20
-			downloader.TextColor3 = Color3.new(1, 1, 1)
-			downloader.FontFace = uipallet.Font
-			downloader.Parent = mainapi.gui
-			mainapi.Downloader = downloader
-		end
-		downloader.Text = 'Downloading '..text
-	end
-end
-
 local function createMobileButton(buttonapi, position)
 	local heldbutton = false
 	local button = Instance.new('TextButton')
@@ -322,7 +304,6 @@ end
 
 local function downloadFile(path, func)
 	if not isfile(path) then
-		createDownloader(path)
 		local suc, res = pcall(function()
 			return game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/'..readfile('NYX/profiles/commit.txt')..'/'..select(1, path:gsub('NYX/', '')), true)
 		end)
@@ -5649,10 +5630,6 @@ function mainapi:Load(skipgui, profile)
 		self:Save()
 	end
 
-	if self.Downloader then
-		self.Downloader:Destroy()
-		self.Downloader = nil
-	end
 	self.Loaded = savecheck
 	self.Loading = false
 	self.Categories.Main.Options.Bind:SetBind(self.Keybind)
