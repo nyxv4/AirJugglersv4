@@ -11980,7 +11980,7 @@ run(function()
 		Name = "Swing only",
 		Tooltip = "Only attacks while swinging manually"
 	})
-end)
+end, loadTrace)
 		if not loadOk then
 			notif('NYX', 'CatKillAura failed to load: '..tostring(loadErr), 15, 'alert')
 		end
