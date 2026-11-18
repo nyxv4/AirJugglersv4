@@ -9434,7 +9434,6 @@ run(function()
 	local GrandSort
 	local GrandSwingRange
 	local GrandAttackRange
-	local GrandChargeTime
 	local GrandUpdateRate
 	local GrandAngleSlider
 	local GrandMaxTargets
@@ -9640,7 +9639,6 @@ run(function()
 					end)
 				end
 
-				local swingCooldown = 0
 				repeat
 					local attacked, sword, meta = {}, grandGetAttackData()
 					GrandAttacking = false
@@ -9692,7 +9690,7 @@ run(function()
 									GrandAttacking = true
 									store.GrandKillauraTarget = v
 									if not GrandSwing.Enabled and GrandAnimDelay < tick() and not GrandLegitAura.Enabled then
-										GrandAnimDelay = tick() + (meta.sword and meta.sword.respectAttackSpeedForEffects and meta.sword.attackSpeed or math.max(GrandChargeTime.Value, 0.11))
+										GrandAnimDelay = tick() + (meta.sword and meta.sword.respectAttackSpeedForEffects and meta.sword.attackSpeed or 0.11)
 										pcall(function()
 											bedwars.SwordController:playSwordEffect(meta, false)
 										end)
@@ -9708,27 +9706,18 @@ run(function()
 								end
 
 								if delta.Magnitude > GrandAttackRange.Value then continue end
-								-- Pace every range, not just in-reach targets: a burst past the server
-								-- floor gets the next few seconds of hits dropped or muted.
-								if (tick() - swingCooldown) < math.max(GrandChargeTime.Value, 0.296) then continue end
 
 								local actualRoot = v.Character and v.Character.PrimaryPart
 								if actualRoot then
 									local dir = CFrame.lookAt(selfpos, actualRoot.Position).LookVector
 									local pos = selfpos + dir * math.max(delta.Magnitude - 14.399, 0)
-									swingCooldown = tick()
 									bedwars.SwordController.lastAttack = workspace:GetServerTimeNow()
 									store.attackReach = (delta.Magnitude * 100) // 1 / 100
 									store.attackReachUpdate = tick() + 1
 
-									if delta.Magnitude < 14.4 and GrandChargeTime.Value > 0.11 then
-										GrandAnimDelay = tick()
-									end
-
 									grandSendHit({
 										weapon = sword.tool,
 										chargedAttack = {chargeRatio = 0},
-										lastSwingServerTimeDelta = 0.5,
 										entityInstance = v.Character,
 										validate = {
 											raycast = {
@@ -9764,7 +9753,7 @@ run(function()
 						entitylib.character.RootPart.CFrame = CFrame.lookAt(entitylib.character.RootPart.Position, Vector3.new(vec.X, entitylib.character.RootPart.Position.Y + 0.001, vec.Z))
 					end
 
-					task.wait(1 / math.max(GrandUpdateRate.Value, 1))
+					task.wait(#attacked > 0 and #attacked * 0.02 or 1 / math.max(GrandUpdateRate.Value, 1))
 				until not GrandKillaura.Enabled
 			else
 				GrandAttacking = false
@@ -9822,13 +9811,6 @@ run(function()
 		Suffix = function(val)
 			return val == 1 and 'stud' or 'studs'
 		end
-	})
-	GrandChargeTime = GrandKillaura:CreateSlider({
-		Name = 'Swing time',
-		Min = 0,
-		Max = 0.5,
-		Default = 0.42,
-		Decimal = 100
 	})
 	GrandAngleSlider = GrandKillaura:CreateSlider({
 		Name = 'Max angle',
