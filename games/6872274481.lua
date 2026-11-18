@@ -3532,10 +3532,14 @@ run(function()
 						local best = math.huge
 						if root then
 							for _, ent in entitylib.List do
-								local hum = ent.Humanoid
-								if ent.RootPart and ent.Character and hum and hum.Health > 0 then
-									local d = (ent.RootPart.Position - root.Position).Magnitude
-									if d < best then best = d end
+								if ent.Targetable and ent.RootPart and ent.Character then
+									if (ent.Player and not (Targets and Targets.Players and Targets.Players.Enabled))
+										or (ent.NPC and not (Targets and Targets.NPCs and Targets.NPCs.Enabled)) then continue end
+									local hum = ent.Humanoid
+									if hum and hum.Health > 0 then
+										local d = (ent.RootPart.Position - root.Position).Magnitude
+										if d < best then best = d end
+									end
 								end
 							end
 						end
@@ -7919,7 +7923,6 @@ run(function()
 			repeat
 				task.wait()
 				if token ~= fhRestoreToken then return end
-				if fhHubTool then return end
 				if not sw.tool.Parent then return end
 				if not Killaura or not Killaura.Enabled then return end
 				if isProjectileTool(liveHandTool()) and liveHandTool() ~= sw.tool then return end
