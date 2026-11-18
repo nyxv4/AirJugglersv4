@@ -8509,7 +8509,7 @@ run(function()
 			-- Firing before the server sees the bow swap gets the shot rejected.
 			if handReady then
 				shootProjectile(item, ammo, projectile, itemMeta, selfPos, ent, true)
-				task.wait(0.05)
+				task.wait(0.075)
 			end
 		end)
 		fhLegitShot = false
@@ -8573,7 +8573,7 @@ run(function()
 		autoShootLoop = task.spawn(function()
 			while FastHits and FastHits.Enabled and ((Killaura and Killaura.Enabled) or (vape.Modules and vape.Modules['GrandKillaura'] and vape.Modules['GrandKillaura'].Enabled)) do
 				pcall(doFastHits)
-				task.wait(0.02)
+				task.wait(0.05)
 			end
 			fhBusy = false
 			autoShootLoop = nil
@@ -8666,16 +8666,11 @@ run(function()
 		-- A sword hit while a bow/other projectile is in hand cancels the shot; the player
 		-- picked that item on purpose, so the aura stands down until they switch back.
 		if isProjectileTool(liveHandTool()) then return false end
-		-- The client hand value flips optimistically; only the server-confirmed hand proves the
-		-- sword is really back. Swinging while the server still holds the projectile gets the
-		-- hit dropped, so wait for store.hand instead of a fixed timer.
-		local handTool = store.hand and store.hand.tool
-		if handTool and isProjectileTool(handTool) then return false end
-		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.08 then return false end
+		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
 
 		-- A sword hit sent right behind a bolt would cancel it; the bow stays raised until the
 		-- swap finishes, so a short fixed guard is enough. Ping is identical on both packets.
-		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.05 then
+		if lastProjectileTime > 0 and (workspace:GetServerTimeNow() - lastProjectileTime) < 0.075 then
 			return false
 		end
 
