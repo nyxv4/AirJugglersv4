@@ -4723,10 +4723,6 @@ run(function()
 		Name = 'SilentAim',
 		Function = function(callback)
 			if callback then
-				local paMod = vape.Modules and vape.Modules['ProjectileAimbot']
-				if paMod and paMod.Enabled then
-					pcall(paMod.Toggle, paMod)
-				end
 				if SAFOVCircle and SAFOVCircle.Enabled then
 					runFOVCircle(true)
 				end
@@ -6412,14 +6408,6 @@ run(function()
 				return
 			end
 			paStartHandWatch()
-
-			local silentAim = vape.Modules and vape.Modules['SilentAim']
-			if silentAim and silentAim.Enabled then
-				-- The module API only has Toggle; calling a missing SetEnabled here threw before the
-				-- hooks below were installed, which left the module enabled and completely inert.
-				pcall(silentAim.Toggle, silentAim)
-				notif('ProjectileAimbot', 'turned off SilentAim, they cant both run at once gng', 4)
-			end
 
 			if CircleObject then
 				CircleObject.Visible = true
@@ -8831,10 +8819,6 @@ run(function()
 		Name = 'Killaura',
 		Function = function(callback)
 			if callback then
-				if not vape.Loading then
-					local grandMod = vape.Modules and vape.Modules['GrandKillaura']
-					if grandMod and grandMod.Enabled then pcall(grandMod.Toggle, grandMod) end
-				end
 				lastAttackTime = 0
 				lastTargetTime = 0
 				lastAnimTime = 0
@@ -9689,10 +9673,6 @@ run(function()
 		Tooltip = 'Attack players around you\nwithout aiming at them.',
 		Function = function(callback)
 			if callback then
-				if not vape.Loading then
-					local kaMod = vape.Modules and vape.Modules['Killaura']
-					if kaMod and kaMod.Enabled then pcall(kaMod.Toggle, kaMod) end
-				end
 				GrandAttacking = false
 				GrandLastAnimTime = 0
 				lastSwingAnim = 0
