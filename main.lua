@@ -8,7 +8,6 @@ if shared.vape then pcall(function() shared.vape:Uninject() end) end
 local LOADER_URL = "https://raw.githubusercontent.com/nyxv4/nyx1/main/downloader.lua" 
 local _initArgs = ...
 if type(_initArgs) ~= "table" then _initArgs = {} end
-shared.NYXUser = "spookers 👻"
 
 if identifyexecutor then
 	if table.find({'Wave', 'Seliware', 'Volt'}, ({identifyexecutor()})[1]) then
@@ -247,14 +246,6 @@ local function finishLoading()
 	vape:Clean(function()
 		pcall(clear_teleport_queue)
 	end)
-
-	if not shared.vapereload then
-		local mainCategory = vape.Categories and vape.Categories.Main
-		local bindIndicator = mainCategory and mainCategory.Options and mainCategory.Options['GUI bind indicator']
-		if bindIndicator and bindIndicator.Enabled then
-			vape:CreateNotification('[NYX] Finished Loading', 'wsg ' .. shared.NYXUser .. ' ' .. (vape.VapeButton and 'Press the button in the top right to open GUI' or 'Press ' .. table.concat(vape.Keybind, ' + '):upper() .. ' to open GUI'), 5)
-		end
-	end
 end
 
 if not isfile('NYX/profiles/gui.txt') then
