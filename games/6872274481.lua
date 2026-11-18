@@ -10471,6 +10471,23 @@ run(function()
 				end)
 			end
 		end
+		do
+			local controller = bedwars.SwordController
+			if controller then
+				local playOk, play = pcall(function()
+					return getmetatable(controller).__index.playSwordEffect
+				end)
+				if not playOk or type(play) ~= 'function' then
+					local raw = controller.playSwordEffect
+					local mt = getmetatable(controller)
+					if mt == nil then
+						setmetatable(controller, {__index = {playSwordEffect = raw or function() end}})
+					elseif type(mt.__index) == 'table' then
+						mt.__index.playSwordEffect = raw or function() end
+					end
+				end
+			end
+		end
 		if type(bedwars.BowConstantsTable) ~= 'table' then
 			bedwars.BowConstantsTable = {}
 		end
@@ -10502,6 +10519,7 @@ run(function()
 			return (a.Entity.Health or math.huge) < (b.Entity.Health or math.huge)
 		end
 	}, {__index = sortmethods})
+	local loadOk, loadErr = pcall(function()
 	local LocalPlayer = lplr
 	local Entity = entitylib
 	local Camera = gameCamera
@@ -11959,6 +11977,10 @@ run(function()
 		Tooltip = "Only attacks while swinging manually"
 	})
 end)
+		if not loadOk then
+			notif('NYX', 'CatKillAura failed to load: '..tostring(loadErr), 15, 'alert')
+		end
+	end)
 						
 run(function()
 	local ProjectileAura
