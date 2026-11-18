@@ -11970,14 +11970,18 @@ run(function()
 	local function getBedNear()
 		local root = entitylib.isAlive and entitylib.character and entitylib.character.RootPart or nil
 		local localPosition = root and root.Position or Vector3.zero
+		local best, bestDist
 		for _, v in collectionService:GetTagged('bed') do
 			local bedPos = bedPosition(v)
-			if bedPos and (localPosition - bedPos).Magnitude < (PlaceRange.Value + Radius.Value)
-				and v:GetAttribute('Team'..(lplr:GetAttribute('Team') or -1)..'NoBreak') then
-				return v
+			if bedPos then
+				local dist = (localPosition - bedPos).Magnitude
+				if dist < (PlaceRange.Value + Radius.Value) and (not bestDist or dist < bestDist)
+					and v:GetAttribute('Team'..(lplr:GetAttribute('Team') or -1)..'NoBreak') then
+					best, bestDist = v, dist
+				end
 			end
 		end
-		return nil
+		return best
 	end
 
 	local function getBlock(itemType)
@@ -11989,8 +11993,10 @@ run(function()
 			return nil
 		end
 
+		local inv = store.inventory and store.inventory.inventory
+		if not inv then return nil end
 		local best, health
-		for _, v in store.inventory.inventory.items do
+		for _, v in inv.items do
 			local block = bedwars.ItemMeta[v.itemType] and bedwars.ItemMeta[v.itemType].block
 			if not block or (Wool.Enabled and not v.itemType:find('wool')) then continue end
 			if not table.find(Whitelist.ListEnabled, v.itemType:find('wool') and 'wool' or v.itemType) then continue end
@@ -12076,12 +12082,15 @@ run(function()
 					end
 				end))
 
+				local lastScan, failures = 0, 0
 				repeat
 					local found = getBedNear()
 					if found ~= bed then
 						bed = found
+						failures = 0
 						if bed then
 							scanBed(bed)
+							lastScan = tick()
 						else
 							table.clear(Layout)
 						end
@@ -12102,14 +12111,12 @@ run(function()
 							end
 						end
 
-						local bedPos = bedPosition(bed)
-						if bedPos then
-							table.sort(holes, function(a, b)
-								return (a[1] - bedPos).Magnitude < (b[1] - bedPos).Magnitude
-							end)
-						end
+						table.sort(holes, function(a, b)
+							return (a[1] - localPosition).Magnitude < (b[1] - localPosition).Magnitude
+						end)
 
 						for _, v in holes do
+							if not BedPatcher.Enabled then break end
 							local position, itemType = unpack(v)
 							if getPlacedBlock(position) then
 								continue
@@ -12125,9 +12132,20 @@ run(function()
 							end
 
 							Placing = true
-							bedwars.placeBlock(position, item)
+							local ok = pcall(bedwars.placeBlock, position, item)
 							Placing = false
+							if ok then
+								failures = 0
+							else
+								failures += 1
+							end
 							task.wait(1 / (bedwars.SharedConstants.BLOCK_PLACE_CPS or 50))
+						end
+
+						if failures >= 5 then
+							failures = 0
+							scanBed(bed)
+							lastScan = tick()
 						end
 					elseif not bed and Mode.Value == 'On Key' then
 						notif('BedPatcher', 'Unable to locate bed', 5)
@@ -12135,7 +12153,12 @@ run(function()
 						break
 					end
 
-					task.wait(0.5)
+					if bed and tick() - lastScan > 4 then
+						scanBed(bed)
+						lastScan = tick()
+					end
+
+					task.wait(0.25)
 					if Mode.Value == 'On Key' then
 						BedPatcher:Toggle()
 						break
