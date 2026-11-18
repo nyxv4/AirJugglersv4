@@ -9725,18 +9725,11 @@ run(function()
 										GrandAnimDelay = tick()
 									end
 
-									local weaponInst = sword.tool
-									pcall(function()
-										local inv = replicatedStorage:FindFirstChild('Inventories')
-										local mine = inv and inv:FindFirstChild(lplr.Name)
-										local w = mine and mine:FindFirstChild(sword.tool.Name)
-										if w then weaponInst = w end
-									end)
-
 									grandSendHit({
-										weapon = weaponInst,
-										entityInstance = v.Character,
+										weapon = sword.tool,
 										chargedAttack = {chargeRatio = 0},
+										lastSwingServerTimeDelta = 0.5,
+										entityInstance = v.Character,
 										validate = {
 											raycast = {
 												cameraPosition = {value = pos},
