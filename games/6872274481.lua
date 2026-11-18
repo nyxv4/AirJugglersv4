@@ -11642,12 +11642,19 @@ run(function()
 	FastHits = Killaura:CreateGroup({
 		Name = "Fast Hits",
 		Default = false,
-		Tooltip = 'Mixes projectiles in with your hits for more damage'
+		Tooltip = 'Mixes projectiles in with your hits for more damage',
+		Function = function(Callback)
+			if Whitelist then Whitelist.Object.Visible = Callback end
+			if AlsoUse then AlsoUse.Object.Visible = Callback end
+			if Legit then Legit.Object.Visible = Callback end
+			if FireRate then FireRate.Object.Visible = Callback end
+		end
 	})
 	Whitelist = FastHits:CreateTextList({
 		Name = "Projectiles",
 		Default = {"arrow", "snowball"},
 		Darker = true,
+		Visible = false,
 		Tooltip = 'Projectiles to use'
 	})
 	AlsoUse = FastHits:CreateMultiDropdown({
@@ -11655,11 +11662,13 @@ run(function()
 		List = {"Sophia", "Whim", "Nazar", "Umeko", "Lasso", "Fireball", "Gloop"},
 		Default = {},
 		Darker = true,
+		Visible = false,
 		Tooltip = 'Extra weapons to fire as well'
 	})
 	Legit = FastHits:CreateToggle({
 		Name = "Legit Switch",
-		Darker = true
+		Darker = true,
+		Visible = false
 	})
 	FireRate = FastHits:CreateSlider({
 		Name = "Fire rate",
@@ -11668,6 +11677,7 @@ run(function()
 		Max = 2,
 		Decimal = 100,
 		Darker = true,
+		Visible = false,
 		Default = 0.05
 	})
 	ContinueSwing = Killaura:CreateTwoSlider({
