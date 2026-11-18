@@ -9560,6 +9560,7 @@ run(function()
 		Name = 'GrandKillaura',
 		Tooltip = 'Attack players around you\nwithout aiming at them.',
 		Function = function(callback)
+			local grandSendAt, grandBackupAt = 0, 0
 			if callback then
 				if inputService.TouchEnabled then
 					pcall(function()
@@ -9709,25 +9710,42 @@ run(function()
 
 								local actualRoot = v.Character and v.Character.PrimaryPart
 								if actualRoot then
-									local dir = CFrame.lookAt(selfpos, actualRoot.Position).LookVector
-									local pos = selfpos + dir * math.max(delta.Magnitude - 14.399, 0)
-									bedwars.SwordController.lastAttack = workspace:GetServerTimeNow()
-									store.attackReach = (delta.Magnitude * 100) // 1 / 100
-									store.attackReachUpdate = tick() + 1
+									-- One packet per hit window plus a 16 ms backup instead of one per pass.
+									-- A 50+ per second stream gets SwordHit muted server-side for a few
+									-- seconds, which is the hits-stop-then-resume pattern.
+									local srvNow = workspace:GetServerTimeNow()
+									local shoot = false
+									if grandSendAt == 0 then
+										grandSendAt, grandBackupAt, shoot = srvNow + 0.276, srvNow + 0.016, true
+									elseif srvNow >= grandSendAt - 0.004 then
+										grandSendAt = grandSendAt + 0.276
+										if grandSendAt < srvNow - 0.02 then grandSendAt = srvNow end
+										grandBackupAt, shoot = srvNow + 0.016, true
+									elseif grandBackupAt > 0 and srvNow >= grandBackupAt then
+										grandBackupAt, shoot = 0, true
+									end
 
-									grandSendHit({
-										weapon = sword.tool,
-										chargedAttack = {chargeRatio = 0},
-										entityInstance = v.Character,
-										validate = {
-											raycast = {
-												cameraPosition = {value = pos},
-												cursorDirection = {value = dir}
-											},
-											targetPosition = {value = actualRoot.Position},
-											selfPosition = {value = pos}
-										}
-									})
+									if shoot then
+										local dir = CFrame.lookAt(selfpos, actualRoot.Position).LookVector
+										local pos = selfpos + dir * math.max(delta.Magnitude - 14.399, 0)
+										bedwars.SwordController.lastAttack = srvNow
+										store.attackReach = (delta.Magnitude * 100) // 1 / 100
+										store.attackReachUpdate = tick() + 1
+
+										grandSendHit({
+											weapon = sword.tool,
+											chargedAttack = {chargeRatio = 0},
+											entityInstance = v.Character,
+											validate = {
+												raycast = {
+													cameraPosition = {value = pos},
+													cursorDirection = {value = dir}
+												},
+												targetPosition = {value = actualRoot.Position},
+												selfPosition = {value = pos}
+											}
+										})
+									end
 								end
 							end
 						end
@@ -9753,7 +9771,9 @@ run(function()
 						entitylib.character.RootPart.CFrame = CFrame.lookAt(entitylib.character.RootPart.Position, Vector3.new(vec.X, entitylib.character.RootPart.Position.Y + 0.001, vec.Z))
 					end
 
-					task.wait(#attacked > 0 and #attacked * 0.02 or 1 / math.max(GrandUpdateRate.Value, 1))
+					-- Keep the pass rate high enough for the hit scheduler even with several
+					-- targets in swing range (5 targets used to mean a 100 ms pass).
+					task.wait(#attacked > 0 and math.min(#attacked * 0.02, 0.04) or 1 / math.max(GrandUpdateRate.Value, 1))
 				until not GrandKillaura.Enabled
 			else
 				GrandAttacking = false
