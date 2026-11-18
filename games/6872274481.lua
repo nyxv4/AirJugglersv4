@@ -11946,6 +11946,14 @@ run(function()
 	end)
 	local Placing, Old = false
 
+	local function bedPosition(bed)
+		if bed:IsA('BasePart') then
+			return bed.Position
+		end
+		local ok, pivot = pcall(bed.GetPivot, bed)
+		return ok and pivot and pivot.Position or nil
+	end
+
 	for _, v in Enum.NormalId:GetEnumItems() do
 		table.insert(Adjacent, Vector3.FromNormalId(v) * 3)
 	end
@@ -11960,9 +11968,11 @@ run(function()
 	end
 
 	local function getBedNear()
-		local localPosition = entitylib.isAlive and entitylib.character.RootPart.Position or Vector3.zero
+		local root = entitylib.isAlive and entitylib.character and entitylib.character.RootPart or nil
+		local localPosition = root and root.Position or Vector3.zero
 		for _, v in collectionService:GetTagged('bed') do
-			if (localPosition - v.Position).Magnitude < (PlaceRange.Value + Radius.Value)
+			local bedPos = bedPosition(v)
+			if bedPos and (localPosition - bedPos).Magnitude < (PlaceRange.Value + Radius.Value)
 				and v:GetAttribute('Team'..(lplr:GetAttribute('Team') or -1)..'NoBreak') then
 				return v
 			end
@@ -11996,8 +12006,12 @@ run(function()
 
 	local function scanBed(bed)
 		table.clear(Layout)
+		local center = bedPosition(bed)
+		if not center then
+			return
+		end
 		for _, v in store.blocks do
-			if not v:HasTag('bed') and (v.Position - bed.Position).Magnitude <= Radius.Value then
+			if v:IsA('BasePart') and not v:HasTag('bed') and (v.Position - center).Magnitude <= Radius.Value then
 				Layout[v.Position] = v.Name
 			end
 		end
@@ -12042,7 +12056,8 @@ run(function()
 				end
 
 				BedPatcher:Clean(collectionService:GetInstanceAddedSignal('block'):Connect(function(block)
-					if bed and not block:HasTag('bed') and (block.Position - bed.Position).Magnitude <= Radius.Value then
+					local bedPos = bed and bedPosition(bed) or nil
+					if bedPos and block:IsA('BasePart') and not block:HasTag('bed') and (block.Position - bedPos).Magnitude <= Radius.Value then
 						Layout[block.Position] = block.Name
 					end
 				end))
@@ -12073,7 +12088,12 @@ run(function()
 					end
 
 					if bed and entitylib.isAlive then
-						local localPosition = entitylib.character.RootPart.Position
+						local root = entitylib.character and entitylib.character.RootPart or nil
+						if not root then
+							task.wait()
+							continue
+						end
+						local localPosition = root.Position
 						local holes = {}
 
 						for position, name in Layout do
@@ -12082,9 +12102,12 @@ run(function()
 							end
 						end
 
-						table.sort(holes, function(a, b)
-							return (a[1] - bed.Position).Magnitude < (b[1] - bed.Position).Magnitude
-						end)
+						local bedPos = bedPosition(bed)
+						if bedPos then
+							table.sort(holes, function(a, b)
+								return (a[1] - bedPos).Magnitude < (b[1] - bedPos).Magnitude
+							end)
+						end
 
 						for _, v in holes do
 							local position, itemType = unpack(v)
