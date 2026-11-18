@@ -4728,6 +4728,55 @@ run(function()
 	-- path that already lands SilentAim's shots, so PA can never aim worse than it.
 	vape.SilentAimSolve = solveSilent
 
+	-- The server only scores a shot from the ProjectileHit our own local projectile reports, so the
+	-- local shot must fly the redirected path and must not report before the delayed packet is sent.
+	local saLocal = {Shots = {}}
+	local function saLocalProjectile(...)
+		local args = table.pack(...)
+		local offset = typeof(args[4]) == 'Vector3' and 0 or typeof(args[5]) == 'Vector3' and 1 or nil
+		if offset and SilentAim and SilentAim.Enabled then
+			local projType, origin, shotId, velocity = args[3 + offset], args[4 + offset], args[5 + offset], args[6 + offset]
+			if type(projType) == 'string' and typeof(velocity) == 'Vector3' and velocity.Magnitude > 0 then
+				local ok, aimed = pcall(solveSilent, {saCurrentHand(), nil, projType, origin, nil, velocity})
+				aimed = ok and typeof(aimed) == 'Vector3' and aimed.Magnitude > 0 and aimed or false
+				local entry = {Velocity = aimed, Type = projType, At = os.clock()}
+				for id, old in saLocal.Shots do
+					if entry.At - old.At > 5 then
+						saLocal.Shots[id] = nil
+					end
+				end
+				if shotId ~= nil and shotId ~= '' then
+					saLocal.Shots[shotId] = entry
+				end
+				saLocal.Last = entry
+				pcall(awaitShotHand)
+				if aimed then
+					args[6 + offset] = aimed
+				end
+			end
+		end
+		return saLocal.Old(table.unpack(args, 1, args.n))
+	end
+	local function saLocalShot(args)
+		if args[7] ~= nil and args[7] ~= '' then
+			local entry = saLocal.Shots[args[7]]
+			saLocal.Shots[args[7]] = nil
+			return entry
+		end
+		local entry = saLocal.Last
+		if entry and entry.Type == args[3] and os.clock() - entry.At < 1 then
+			saLocal.Last = nil
+			return entry
+		end
+	end
+	local function installLocalHook()
+		local controller = bedwars.ProjectileController
+		if not saLocal.Old and controller and type(controller.createLocalProjectile) == 'function' then
+			saLocal.Old = controller.createLocalProjectile
+			controller.createLocalProjectile = saLocalProjectile
+		end
+	end
+
 	SilentAim = vape.Categories.Blatant:CreateModule({
 		Name = 'SilentAim',
 		Function = function(callback)
@@ -4736,6 +4785,7 @@ run(function()
 					runFOVCircle(true)
 				end
 				startHandWatch()
+				installLocalHook()
 				SilentAim:Clean(watchTargets())
 				if not namecallHooked then
 					namecallHooked = true
@@ -4753,10 +4803,16 @@ run(function()
 						local remote = ...
 						if typeof(remote) == 'Instance' and remote.Name == 'ProjectileFire' then
 							local args = table.pack(select(2, ...))
-							local solver = (not SilentAim.Enabled) and vape.PASolveShot or solveSilent
-							local ok, newVelocity = pcall(solver or solveSilent, args)
-							if (not ok or typeof(newVelocity) ~= 'Vector3' or newVelocity.Magnitude <= 0) and solver ~= solveSilent then
-								ok, newVelocity = pcall(solveSilent, args)
+							local shot = SilentAim.Enabled and saLocalShot(args) or nil
+							local ok, newVelocity
+							if shot then
+								ok, newVelocity = true, shot.Velocity
+							else
+								local solver = (not SilentAim.Enabled) and vape.PASolveShot or solveSilent
+								ok, newVelocity = pcall(solver or solveSilent, args)
+								if (not ok or typeof(newVelocity) ~= 'Vector3' or newVelocity.Magnitude <= 0) and solver ~= solveSilent then
+									ok, newVelocity = pcall(solveSilent, args)
+								end
 							end
 							if ok and typeof(newVelocity) == 'Vector3' and newVelocity.Magnitude > 0 then
 								local startedAt = os.clock()
@@ -6360,6 +6416,7 @@ run(function()
 					end
 				end
 				if ok and typeof(AimVelocity) == 'Vector3' and AimVelocity.Magnitude > 0 then
+					pcall(paAwaitHand)
 					args[6 + Offset] = AimVelocity.Unit * Velocity.Magnitude
 					paLog('local', 'local shot aimed: ' .. ProjectileName)
 				end
