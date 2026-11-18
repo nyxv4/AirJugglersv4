@@ -7869,6 +7869,7 @@ run(function()
 				if token ~= fhRestoreToken then return end
 				if not sw.tool.Parent then return end
 				if not Killaura or not Killaura.Enabled then return end
+				if isProjectileTool(liveHandTool()) then return end
 				if check.Value ~= sw.tool or (store.hand and store.hand.tool ~= sw.tool) then
 					check.Value = sw.tool
 					pcall(function() bedwars.Client:Get(remotes.EquipItem):CallServerAsync({hand = sw.tool}) end)
@@ -8603,6 +8604,9 @@ run(function()
 	end
 
 	local function attemptFire(forcedTarget, rangeLimit)
+		-- A sword hit while a bow/other projectile is in hand cancels the shot; the player
+		-- picked that item on purpose, so the aura stands down until they switch back.
+		if isProjectileTool(liveHandTool()) then return false end
 		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
 
 		-- A sword hit sent right behind a bolt would cancel it; the bow stays raised until the
@@ -8968,11 +8972,12 @@ run(function()
 							store.KillauraTarget = nil
 						end
 
+						local liveProj = isProjectileTool(liveHandTool())
 						local shouldSwing = hasValidSwingTargets or hasValidAttackTargets
 						local isLegitAura = LegitAura and LegitAura.Enabled
 
 						if shouldSwing or isLegitAura then
-							if not fhBusy and not regentBusy and store.hand and store.hand.tool ~= sword.tool and (tick() - (store._kaSwitch or 0)) > 0.25 then
+							if not liveProj and not fhBusy and not regentBusy and store.hand and store.hand.tool ~= sword.tool and (tick() - (store._kaSwitch or 0)) > 0.25 then
 								store._kaSwitch = tick()
 								switchItem(sword.tool, 0)
 							end
@@ -8993,7 +8998,7 @@ run(function()
 								end
 							end
 
-							if not isClaw and (tick() - lastAnimTime) >= animPeriod then
+							if not isClaw and not liveProj and (tick() - lastAnimTime) >= animPeriod then
 								local allowSwingAnim = not (LegitAura and LegitAura.Enabled)
 								if allowSwingAnim then
 									-- Fixed animation period to prevent stuttering/doubling
@@ -11030,6 +11035,9 @@ run(function()
 						if not Blocked then
 							Sword = Limit.Enabled and store.hand or store.tools.sword
 							if not Sword or not Sword.tool then
+								Sword = nil
+							elseif isProjectileTool(liveHandTool()) then
+								-- the player picked a bow/projectile on purpose; don't yank the sword back
 								Sword = nil
 							elseif Limit.Enabled and (store.hand.toolType ~= "sword" or bedwars.DaoController.chargingMaid) then
 								Sword = nil
