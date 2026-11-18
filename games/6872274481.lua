@@ -9504,6 +9504,34 @@ run(function()
 		return true
 	end
 
+	-- The game sends SwordHit through the net client (SendToServer). Firing the raw
+	-- remote instance makes the swing play locally but the server drops it, so go
+	-- through the same call the game uses.
+	local function grandSendHit(payload)
+		local ok, remote = pcall(function()
+			return bedwars.Client:Get('SwordHit')
+		end)
+		if ok and remote then
+			local previous = store.kaSending
+			store.kaSending = true
+			local sent = pcall(function()
+				if type(remote.SendToServer) == 'function' then
+					remote:SendToServer(payload)
+				else
+					remote.instance:FireServer(payload)
+				end
+			end)
+			store.kaSending = previous
+			if sent then return true end
+		end
+		if AttackRemote then
+			return pcall(function()
+				AttackRemote:FireServer(payload)
+			end)
+		end
+		return false
+	end
+
 	local function grandGetAttackData()
 		if GrandMouse.Enabled and not inputService:IsMouseButtonPressed(0) then return false end
 		if GrandGUI.Enabled and bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN) then return false end
@@ -9683,22 +9711,27 @@ run(function()
 										GrandAnimDelay = tick()
 									end
 
-									if AttackRemote then
-										AttackRemote:FireServer({
-											weapon = sword.tool,
-											chargedAttack = {chargeRatio = 0},
-											lastSwingServerTimeDelta = 0.5,
-											entityInstance = v.Character,
-											validate = {
-												raycast = {
-													cameraPosition = {value = pos},
-													cursorDirection = {value = dir}
-												},
-												targetPosition = {value = actualRoot.Position},
-												selfPosition = {value = pos}
-											}
-										})
-									end
+									local weaponInst = sword.tool
+									pcall(function()
+										local inv = replicatedStorage:FindFirstChild('Inventories')
+										local mine = inv and inv:FindFirstChild(lplr.Name)
+										local w = mine and mine:FindFirstChild(sword.tool.Name)
+										if w then weaponInst = w end
+									end)
+
+									grandSendHit({
+										weapon = weaponInst,
+										entityInstance = v.Character,
+										chargedAttack = {chargeRatio = 0},
+										validate = {
+											raycast = {
+												cameraPosition = {value = pos},
+												cursorDirection = {value = dir}
+											},
+											targetPosition = {value = actualRoot.Position},
+											selfPosition = {value = pos}
+										}
+									})
 								end
 							end
 						end
