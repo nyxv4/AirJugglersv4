@@ -2,12 +2,21 @@
 
 local _runCount = 0
 local _runBusy = false
+-- executors that run require() at game identity leave the thread there, which breaks GUI creation in later blocks
+local function raiseIdentity()
+	local raiser = setthreadidentity or shared.NYXSetIdentity
+	if type(raiser) == 'function' then
+		pcall(raiser, 8)
+	end
+end
 local run = function(func)
+	raiseIdentity()
 	if not _runBusy then
 		_runBusy = true
 		_runCount = _runCount + 1
 		if _runCount % 8 == 0 then
 			task.wait()
+			raiseIdentity()
 		end
 		local ok, err = pcall(func)
 		_runBusy = false
@@ -7252,15 +7261,13 @@ run(function()
 	end
 
 	local function FireAttackRemote(weapon, entityInstance, selfPos, targetPos)
-		if not AttackRemote then return false end
-
 		local delta = (targetPos - selfPos).Magnitude
 		if delta < 0.01 then return false end
 
 		local dir = CFrame.lookAt(selfPos, targetPos).LookVector
 		local pos = selfPos + dir * math.max(delta - 14.399, 0)
 
-		AttackRemote:FireServer({
+		local payload = {
 			weapon = weapon,
 			chargedAttack = {chargeRatio = 0},
 			entityInstance = entityInstance,
@@ -7272,7 +7279,28 @@ run(function()
 				targetPosition = {value = targetPos},
 				selfPosition = {value = pos}
 			}
-		})
+		}
+
+		-- the server drops SwordHit fired on the raw remote; it has to go through the net client like the game's own swing
+		if not store.kaAttackNet then
+			pcall(function()
+				local net = bedwars.Client:Get((getgenv().remotes or remotes).AttackEntity)
+				if net and type(net.SendToServer) == 'function' then
+					store.kaAttackNet = net
+				end
+			end)
+		end
+		local net = store.kaAttackNet
+		if net then
+			local previous = store.kaSending
+			store.kaSending = true
+			local ok = pcall(net.SendToServer, net, payload)
+			store.kaSending = previous
+			if ok then return true end
+		end
+
+		if not AttackRemote then return false end
+		AttackRemote:FireServer(payload)
 		return true
 	end
 
@@ -10504,6 +10532,7 @@ run(function()
 		return tostring(err) .. '\n' .. tostring(debug.traceback(nil, 2))
 	end
 	local loadOk, loadErr = xpcall(function()
+	raiseIdentity()
 	local LocalPlayer = lplr
 	local Entity = entitylib
 	local Camera = gameCamera
@@ -10853,6 +10882,7 @@ run(function()
 		end
 	end
 	
+	raiseIdentity()
 	Killaura = vape.Categories.Blatant:CreateModule({
 		Name = "CatKillAura",
 		Function = function(Callback: boolean)

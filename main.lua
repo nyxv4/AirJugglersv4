@@ -28,7 +28,7 @@ local loadstring = function(...)
 	end
 	return res
 end
-local queue_on_teleport = queue_on_teleport or function() end
+local queue_on_teleport = queue_on_teleport or queueonteleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport) or function() end
 local clear_teleport_queue = clear_teleport_queue or clearteleportqueue or function() end
 local isfile = isfile or function(file)
 	local suc, res = pcall(function()
@@ -96,6 +96,56 @@ local function resolveBuildCommit()
 	if type(cached) == 'string' and #cached == 40 then return cached end
 	return 'main'
 end
+
+local teleportExtras = {}
+local function buildTeleportScript()
+	if shared.VapeIndependent then return nil end
+
+	local argParts = {}
+	if type(latestCommit) == 'string' and #latestCommit == 40 then
+		table.insert(argParts, 'Commit = "' .. latestCommit .. '"')
+	end
+	if getgenv().Closet then
+		table.insert(argParts, 'Closet = true')
+	end
+	local args = #argParts > 0 and ('({' .. table.concat(argParts, ', ') .. '})') or '()'
+	-- executors that append instead of replacing would otherwise load the hub once per queued copy
+	local teleportScript = 'if shared.NYXTeleportLoad == game.JobId then return end\nshared.NYXTeleportLoad = game.JobId\nshared.vapereload = true\nloadstring(game:HttpGet("' .. LOADER_URL .. '", true), "loader")' .. args
+
+	if identifyexecutor and ({identifyexecutor()})[1] == 'Potassium' then
+		teleportScript = 'task.wait(12)\n' .. teleportScript
+	end
+	if shared.VapeDeveloper then
+		teleportScript = 'shared.VapeDeveloper = true\n' .. teleportScript
+	end
+	if shared.VapeCustomProfile then
+		teleportScript = 'shared.VapeCustomProfile = "' .. shared.VapeCustomProfile .. '"\n' .. teleportScript
+	end
+	if #teleportExtras > 0 then
+		teleportScript = table.concat(teleportExtras, '\n') .. '\n' .. teleportScript
+	end
+	return teleportScript
+end
+
+local function queueTeleport()
+	local teleportScript = buildTeleportScript()
+	if not teleportScript then return end
+	pcall(clear_teleport_queue)
+	pcall(queue_on_teleport, teleportScript)
+end
+
+-- other scripts' queue_on_teleport calls replace the queue on most executors, so they go through here and ride along with the reinject
+shared.NYXQueueTeleport = function(snippet)
+	if type(snippet) ~= 'string' or snippet == '' then return end
+	if shared.VapeIndependent then
+		pcall(queue_on_teleport, snippet)
+		return
+	end
+	table.insert(teleportExtras, snippet)
+	queueTeleport()
+end
+
+queueTeleport()
 
 if identifyexecutor and table.find({'Madium', 'Medium'}, ({identifyexecutor()})[1]) then
 	local realgca = getcustomasset or getsynasset
@@ -218,38 +268,6 @@ local function finishLoading()
 			task.wait(10)
 		until vape.Loaded == nil
 	end))
-
-	local function buildTeleportScript()
-		if shared.VapeIndependent then return nil end
-
-		local argParts = {}
-		if type(latestCommit) == 'string' and #latestCommit == 40 then
-			table.insert(argParts, 'Commit = "' .. latestCommit .. '"')
-		end
-		if getgenv().Closet then
-			table.insert(argParts, 'Closet = true')
-		end
-		local args = #argParts > 0 and ('({' .. table.concat(argParts, ', ') .. '})') or '()'
-		local teleportScript = 'shared.vapereload = true\nloadstring(game:HttpGet("' .. LOADER_URL .. '", true), "loader")' .. args
-
-		if identifyexecutor and ({identifyexecutor()})[1] == 'Potassium' then
-			teleportScript = 'task.wait(12)\n' .. teleportScript
-		end
-		if shared.VapeDeveloper then
-			teleportScript = 'shared.VapeDeveloper = true\n' .. teleportScript
-		end
-		if shared.VapeCustomProfile then
-			teleportScript = 'shared.VapeCustomProfile = "' .. shared.VapeCustomProfile .. '"\n' .. teleportScript
-		end
-		return teleportScript
-	end
-
-	local function queueTeleport()
-		local teleportScript = buildTeleportScript()
-		if not teleportScript then return end
-		pcall(clear_teleport_queue)
-		pcall(queue_on_teleport, teleportScript)
-	end
 
 	queueTeleport()
 

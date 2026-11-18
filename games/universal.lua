@@ -35,7 +35,13 @@ end
 local run = function(func)
 	func()
 end
-local queue_on_teleport = queue_on_teleport or function() end
+local rawQueueTeleport = queue_on_teleport or queueonteleport or function() end
+local queue_on_teleport = function(snippet)
+	if shared.NYXQueueTeleport then
+		return shared.NYXQueueTeleport(snippet)
+	end
+	return rawQueueTeleport(snippet)
+end
 local cloneref = cloneref or function(obj)
 	return obj
 end
