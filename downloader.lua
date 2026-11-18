@@ -9,24 +9,36 @@ end
 local delfile = delfile or function(file) writefile(file, '') end
 
 local function downloadFile(path, func, forceRef)
-	if forceRef or not isfile(path) or readfile(path) == '' then
-		local suc, res = pcall(function()
-			local ref = forceRef
-			if type(ref) ~= 'string' or ref == '' then
-				ref = isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt')
+	local cached = (isfile(path) and readfile(path)) or ''
+	if forceRef or cached == '' then
+		local res
+		for _ = 1, 3 do
+			local suc, result = pcall(function()
+				local ref = forceRef
+				if type(ref) ~= 'string' or ref == '' then
+					ref = isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt')
+				end
+				if type(ref) ~= 'string' or ref == '' then
+					ref = 'main'
+				end
+				return game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/'..ref..'/'..select(1, path:gsub('NYX/', '')), true)
+			end)
+			if suc and type(result) == 'string' and #result > 0 and result ~= '404: Not Found' and not result:match('^%d%d%d:') and not result:match('^%s*<') then
+				res = result
+				break
 			end
-			if type(ref) ~= 'string' or ref == '' then
-				ref = 'main'
-			end
-			return game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/'..ref..'/'..select(1, path:gsub('NYX/', '')), true)
-		end)
-		if not suc or type(res) ~= 'string' or res == '' or res == '404: Not Found' then error(res) end
-		if path:find('%.lua') then
-			res = '--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.\n'..res
+			task.wait(0.5)
 		end
-		local dir = path:match('^(.*)/[^/]+$')
-		if dir and not isfolder(dir) then makefolder(dir) end
-		writefile(path, res)
+		if res then
+			if path:find('%.lua') then
+				res = '--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.\n'..res
+			end
+			local dir = path:match('^(.*)/[^/]+$')
+			if dir and not isfolder(dir) then makefolder(dir) end
+			writefile(path, res)
+		elseif cached == '' then
+			error('Could not download '..path..' (GitHub unreachable)')
+		end
 	end
 	return (func or readfile)(path)
 end
