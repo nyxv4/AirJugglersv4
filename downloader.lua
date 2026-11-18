@@ -8,6 +8,12 @@ local isfile = isfile or function(file)
 end
 local delfile = delfile or function(file) writefile(file, '') end
 
+local UPDATE_CHECK_INTERVAL = 300
+local function unixTime()
+	local ok, t = pcall(function() return os.time() end)
+	return ok and t or 0
+end
+
 local function downloadFile(path, func, forceRef)
 	local cached = (isfile(path) and readfile(path)) or ''
 	local ref = forceRef or (isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt')) or 'main'
@@ -75,20 +81,31 @@ local function downloadPremadeProfiles(commit)
 	if success and response then
 		local ok, files = pcall(function() return httpService:JSONDecode(response) end)
 		if ok and type(files) == 'table' and response:match('^%s*%[') then
-			local complete = true
+			local targets = {}
 			for _, file in pairs(files) do
 				if type(file) == 'table' and type(file.name) == 'string' and file.name:match('%.txt$') and file.name ~= 'commit.txt' then
 					local baseName = (file.name:match('^(.-)%.txt$') or file.name):gsub('%d+$', '')
 					local fileId = (game.GameId == 2619619496) and game.GameId or game.PlaceId
-					local filePath = 'NYX/profiles/premade/' .. baseName .. tostring(fileId) .. '.txt'
-					local ds, dc = pcall(function() return game:HttpGet(file.download_url, true) end)
+					table.insert(targets, {
+						url = file.download_url,
+						path = 'NYX/profiles/premade/' .. baseName .. tostring(fileId) .. '.txt',
+					})
+				end
+			end
+			local pending = #targets
+			local complete = true
+			for _, target in ipairs(targets) do
+				task.spawn(function()
+					local ds, dc = pcall(function() return game:HttpGet(target.url, true) end)
 					if ds and type(dc) == 'string' and #dc > 0 and dc ~= '404: Not Found' and not dc:match('^%d%d%d:') and not dc:match('^%s*<') then
-						writefile(filePath, dc)
+						writefile(target.path, dc)
 					else
 						complete = false
 					end
-				end
+					pending = pending - 1
+				end)
 			end
+			while pending > 0 do task.wait() end
 			if complete then writefile('NYX/profiles/premade/commit.txt', commit) end
 		end
 	end
@@ -101,13 +118,23 @@ if not shared.VapeDeveloper then
 	commit = pinnedCommit or oldCommit
 	if not pinnedCommit then
 		local latest = isfile('NYX/profiles/latest.txt') and readfile('NYX/profiles/latest.txt') or ''
-		local ok, res = pcall(function()
-			return game:HttpGet('https://api.github.com/repos/nyxv4/nyx1/commits/main', true)
-		end)
-		local h = ok and type(res) == 'string' and res:match('"sha"%s*:%s*"(%x+)"')
+		local lastCheck = tonumber(isfile('NYX/profiles/lastcheck.txt') and readfile('NYX/profiles/lastcheck.txt') or '') or 0
+		local now = unixTime()
+		local h
+		if now - lastCheck < UPDATE_CHECK_INTERVAL and #latest == 40 and latest:match('^%x+$') then
+			h = latest
+		else
+			local ok, res = pcall(function()
+				return game:HttpGet('https://api.github.com/repos/nyxv4/nyx1/commits/main', true)
+			end)
+			h = ok and type(res) == 'string' and res:match('"sha"%s*:%s*"(%x+)"')
+			if h and #h == 40 then
+				pcall(writefile, 'NYX/profiles/latest.txt', h)
+				pcall(writefile, 'NYX/profiles/lastcheck.txt', tostring(now))
+			end
+		end
 		if h and #h == 40 then
 			commit = h
-			pcall(writefile, 'NYX/profiles/latest.txt', h)
 		elseif #latest == 40 then
 			commit = latest
 		elseif #commit ~= 40 then
@@ -116,22 +143,22 @@ if not shared.VapeDeveloper then
 	end
 	forceRef = commit
 	if oldCommit ~= commit then
-		wipeFolder('NYX')
-		wipeFolder('NYX/games')
-		wipeFolder('NYX/guis')
-		pcall(function() if isfile('NYX/guis/new.lua') then delfile('NYX/guis/new.lua') end end)
-		wipeFolder('NYX/libraries')
-		if isfolder('NYX/profiles/premade') then
-			for _, file in listfiles('NYX/profiles/premade') do
-				pcall(function() if isfile(file) then delfile(file) end end)
-			end
+		local pending = 0
+		for _, folder in {'NYX', 'NYX/games', 'NYX/guis', 'NYX/libraries'} do
+			pending = pending + 1
+			task.spawn(function()
+				pcall(wipeFolder, folder)
+				pending = pending - 1
+			end)
 		end
+		pcall(function() if isfile('NYX/guis/new.lua') then delfile('NYX/guis/new.lua') end end)
+		while pending > 0 do task.wait() end
 	end
 	writefile('NYX/profiles/commit.txt', commit)
 	local premadeCommit = isfile('NYX/profiles/premade/commit.txt') and readfile('NYX/profiles/premade/commit.txt') or ''
 	local needPremade = #commit ~= 40 or not commit:match('^%x+$') or oldCommit ~= commit or premadeCommit ~= commit
 	if needPremade then
-		pcall(downloadPremadeProfiles, commit)
+		task.spawn(function() pcall(downloadPremadeProfiles, commit) end)
 	end
 end
 

@@ -42,13 +42,31 @@ for _, folder in {'NYX', 'NYX/games', 'NYX/profiles', 'NYX/assets', 'NYX/librari
 	if not isfolder(folder) then makefolder(folder) end
 end
 
+local UPDATE_CHECK_INTERVAL = 300
+local function unixTime()
+	local ok, t = pcall(function() return os.time() end)
+	return ok and t or 0
+end
+
 local function checkForUpdates()
 	local watermark = '--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.'
 	local current = isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt') or ''
-	local ok, res = pcall(function()
-		return game:HttpGet('https://api.github.com/repos/nyxv4/nyx1/commits/main', true)
-	end)
-	local latest = ok and type(res) == 'string' and res:match('"sha"%s*:%s*"(%x+)"')
+	local latest
+	local lastCheck = tonumber(isfile('NYX/profiles/lastcheck.txt') and readfile('NYX/profiles/lastcheck.txt') or '') or 0
+	local cachedLatest = isfile('NYX/profiles/latest.txt') and readfile('NYX/profiles/latest.txt') or ''
+	local now = unixTime()
+	if now - lastCheck < UPDATE_CHECK_INTERVAL and #cachedLatest == 40 and cachedLatest:match('^%x+$') then
+		latest = cachedLatest
+	else
+		local ok, res = pcall(function()
+			return game:HttpGet('https://api.github.com/repos/nyxv4/nyx1/commits/main', true)
+		end)
+		latest = ok and type(res) == 'string' and res:match('"sha"%s*:%s*"(%x+)"')
+		if latest and #latest == 40 then
+			pcall(writefile, 'NYX/profiles/latest.txt', latest)
+			pcall(writefile, 'NYX/profiles/lastcheck.txt', tostring(now))
+		end
+	end
 	if not latest or #latest ~= 40 then
 		if current == '' then
 			current = 'main'
