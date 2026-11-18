@@ -9428,16 +9428,18 @@ run(function()
 		end
 	end)
 
-	-- GrandKillaura: ported from upstream, fully independent state from Killaura
+	-- GrandKillaura: 1:1 VapeV4 Killaura replica (independent state from Killaura)
 	local GrandKillaura
 	local GrandTargets
+	local GrandSort
 	local GrandSwingRange
 	local GrandAttackRange
-	local GrandSwing
+	local GrandChargeTime
 	local GrandUpdateRate
-	local GrandAngle
+	local GrandAngleSlider
 	local GrandMaxTargets
 	local GrandMouse
+	local GrandSwing
 	local GrandGUI
 	local GrandBoxSwingColor
 	local GrandBoxAttackColor
@@ -9451,85 +9453,74 @@ run(function()
 	local GrandAnimationSpeed
 	local GrandAnimationTween
 	local GrandLimit
-	local GrandLegit
-	local GrandAttackCheck
+	local GrandLegitAura
+	local GrandAttackable
 	local GrandParticles, GrandBoxes = {}, {}
 	local GrandAttacking = false
-	local GrandLastSrv = 0
-	local GrandLastAnimTime = 0
-	local GrandFire = {
-		Period = 0.29583333333333334,
-		GraceUntil = 0,
-		AcqTime = 0,
-		ScanTime = 0,
-		ItemUntil = 0,
-		LastSword = nil
-	}
-	local GrandAnimTween
-	local GrandArmC0
-	local GrandAnimActive = false
-	local GRAND_HIT_PERIOD = 0.29583333333333334 -- fallback only; replaced per weapon each frame
+	local GrandAnimTween, GrandArmC0, GrandAnimDelay = nil, nil, 0
+	local GrandAnimInstalled = false
 
-	function GrandFire.projectileInHand()
-		local live = liveHandTool()
-		if live then return isProjectileTool(live) end
-		local hand = store.hand
-		if not hand or not hand.tool then return false end
-		if hand.toolType == 'bow' then return true end
-		local meta = bedwars.ItemMeta and bedwars.ItemMeta[hand.tool.Name]
-		return (meta and meta.projectileSource) and true or false
+	local function grandSetAnimKnit(knit)
+		pcall(function()
+			local fn
+			local ok, raw = pcall(function()
+				return getmetatable(bedwars.SwordController).__index.playSwordEffect
+			end)
+			if ok and type(raw) == 'function' then
+				fn = raw
+			elseif type(bedwars.SwordController.playSwordEffect) == 'function' then
+				fn = bedwars.SwordController.playSwordEffect
+			end
+			if not fn then return end
+			local index = 7
+			local upOk, up = pcall(debug.getupvalue, fn, index)
+			if not (upOk and type(up) == 'table' and rawget(up, 'Controllers')) then
+				for i = 1, 12 do
+					local found, value = debug.getupvalue(fn, i)
+					if not found then break end
+					if type(value) == 'table' and rawget(value, 'Controllers') then
+						index = i
+						break
+					end
+				end
+			end
+			debug.setupvalue(fn, index, knit)
+		end)
+		pcall(function()
+			debug.setupvalue(bedwars.ScytheController.playLocalAnimation, 3, knit)
+		end)
 	end
 
-	function GrandFire.watchHand()
-		if GrandFire.projectileInHand() then
-			GrandFire.ItemUntil = tick() + 0.15
-		end
+	local function grandAttackable()
+		if entitylib.isAlive == false then return false end
+		local char = lplr.Character
+		if not char then return false end
+		if (char:GetAttribute('StunnedUntilTime') or 0) > workspace:GetServerTimeNow() then return false end
+		if char:FindFirstChild('elk') then return false end
+		local ok, frozen = pcall(function()
+			return bedwars.StatusEffectUtil:isActive(char, 'frozen')
+		end)
+		if ok and frozen then return false end
+		return true
 	end
 
 	local function grandGetAttackData()
-		if not entitylib.isAlive then return false end
-		if not entitylib.character or not entitylib.character.RootPart then return false end
-		if not bedwars.SwordController or bedwars.SwordController.disableSwingState then return false end
+		if GrandMouse.Enabled and not inputService:IsMouseButtonPressed(0) then return false end
+		if GrandGUI.Enabled and bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN) then return false end
+		if GrandAttackable.Enabled and not grandAttackable() then return false end
 
-		local casting = lplr:GetAttribute('IsCasting')
-		if casting ~= nil and casting ~= false and casting ~= 0 and casting ~= '' then
-			if casting == true then return false end
-			if type(casting) == 'number' and casting > workspace:GetServerTimeNow() then return false end
-		end
-
-		local stunned = lplr.Character and lplr.Character:GetAttribute('StunnedUntilTime')
-		if stunned and stunned > workspace:GetServerTimeNow() then return false end
-
-		if tick() - (store.silasAbilityTime or 0) < 2.2 then return false end
-		if tick() - (store.terraStompTime or 0) < 0.7 then return false end
-		if tick() - (store.terraKickTime or 0) < 0.5 then return false end
-
-		if GrandMouse and GrandMouse.Enabled and not inputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-			return false
-		end
-
-		if GrandGUI and GrandGUI.Enabled then
-			local ok, open = pcall(function()
-				return bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN)
-			end)
-			if ok and open then return false end
-		end
-
-		local sword = store.hand
-		if not sword or not sword.tool or not isMeleeWeapon(sword.tool.Name) then
-			sword = (GrandLimit and GrandLimit.Enabled) and nil or store.tools.sword
-		end
+		local sword = GrandLimit.Enabled and store.hand or store.tools.sword
 		if not sword or not sword.tool then return false end
-
-		if GrandLimit and GrandLimit.Enabled then
-			if not store.hand or store.hand.toolType ~= 'sword' then return false end
-			if bedwars.DaoController and bedwars.DaoController.chargingMaid then return false end
-		end
 
 		local meta = bedwars.ItemMeta[sword.tool.Name]
 		if not meta then return false end
 
-		if GrandLegit and GrandLegit.Enabled then
+		if GrandLimit.Enabled then
+			if not store.hand or store.hand.toolType ~= 'sword' then return false end
+			if bedwars.DaoController and bedwars.DaoController.chargingMaid then return false end
+		end
+
+		if GrandLegitAura.Enabled then
 			local lastSwing = bedwars.SwordController and bedwars.SwordController.lastSwing
 			if not lastSwing or (tick() - lastSwing) > 0.15 then return false end
 		end
@@ -9537,195 +9528,76 @@ run(function()
 		return sword, meta
 	end
 
-	function GrandFire.aliveTarget(v)
-		if not v or not v.RootPart then return false end
-		local char = v.Character
-		if not char or not char.Parent then return false end
-		if v.Health ~= nil and v.Health <= 0 then return false end
-		return true
-	end
-
-	function GrandFire.inReach(v)
-		local root = entitylib.character and entitylib.character.RootPart
-		if not root or not v or not v.RootPart then return false end
-		return (v.RootPart.Position - root.Position).Magnitude <= GrandAttackRange.Value
-	end
-
-	function GrandFire.withinAngle(v)
-		if GrandAngle.Value >= 360 then return true end
-		local root = entitylib.character and entitylib.character.RootPart
-		if not root or not v or not v.RootPart then return false end
-		local flat = (v.RootPart.Position - root.Position) * Vector3.new(1, 0, 1)
-		if flat.Magnitude <= 1.0 then return true end
-		local flatLV = root.CFrame.LookVector * Vector3.new(1, 0, 1)
-		local facing = flatLV.Magnitude > 0.001 and flatLV.Unit or root.CFrame.RightVector
-		return facing:Dot(flat.Unit) >= math.cos(math.rad(GrandAngle.Value) * 0.5)
-	end
-
-	function GrandFire.resolveTarget()
-		local avoid = (Killaura and Killaura.Enabled) and store.KillauraTarget or nil
-		local function usable(v)
-			return GrandFire.aliveTarget(v) and v ~= avoid and GrandFire.withinAngle(v) and GrandFire.inReach(v)
-				and not (GrandTargets.Walls.Enabled and wallBetween(v))
-		end
-
-		local v = store.GrandKillauraTarget
-		if usable(v) then
-			GrandFire.GraceTarget = v
-			GrandFire.GraceUntil = tick() + 0.4
-			return v
-		end
-
-		local g = GrandFire.GraceTarget
-		if g and tick() < GrandFire.GraceUntil and GrandFire.aliveTarget(g) and GrandFire.inReach(g) and g ~= avoid and not (GrandTargets.Walls.Enabled and wallBetween(g)) then
-			return g
-		end
-
-		local now = tick()
-		if (now - GrandFire.AcqTime) < 0.03 and GrandFire.AcqRes then
-			return usable(GrandFire.AcqRes) and GrandFire.AcqRes or nil
-		end
-		GrandFire.AcqTime = now
-		GrandFire.AcqRes = nil
-
-		-- usable() already runs wallBetween, so let AllPosition skip its own per-entity raycasts.
-		local list = entitylib.AllPosition({
-			Range = GrandAttackRange.Value,
-			Part = 'RootPart',
-			Players = GrandTargets.Players.Enabled,
-			NPCs = GrandTargets.NPCs.Enabled,
-			Limit = 8,
-			Sort = sortmethods.Distance
-		})
-		for _, ent in list do
-			if usable(ent) then
-				GrandFire.AcqRes = ent
-				break
-			end
-		end
-		return GrandFire.AcqRes
-	end
-
-	function GrandFire.attempt()
-		if tick() < GrandFire.ItemUntil then return false end
-
-		local v = GrandFire.resolveTarget()
-		if not v then return false end
-		if not grandGetAttackData() then return false end
-
-		-- Same send Killaura uses, so the server sees the identical packet. Only the target
-		-- acquisition above is Grand's own.
-		if not attemptFire(v, GrandAttackRange.Value) then return false end
-
-		local srvNow = workspace:GetServerTimeNow()
-		GrandLastSrv = GrandLastSrv + GrandFire.Period
-		if GrandLastSrv < srvNow then
-			GrandLastSrv = srvNow
-		end
-		return true
-	end
-
-	function GrandFire.start()
-		if GrandFire.Loop then return end
-
-		GrandFire.Period = GRAND_HIT_PERIOD
-		GrandLastSrv = workspace:GetServerTimeNow() - GrandFire.Period
-		GrandFire.GraceTarget, GrandFire.GraceUntil = nil, 0
-		GrandFire.AcqTime, GrandFire.AcqRes = 0, nil
-		GrandFire.ItemUntil = 0
-		GrandFire.LastSword = nil
-		GrandFire.HoldTarget, GrandFire.HoldUntil = nil, 0
-
-		GrandFire.Loop = task.spawn(function()
-			while GrandKillaura and GrandKillaura.Enabled do
-				local dt = runService.Heartbeat:Wait()
-				if type(dt) ~= 'number' then dt = 1 / 60 end
-				GrandFire.watchHand()
-
-				local sword, meta = grandGetAttackData()
-				if sword and meta then
-					GrandFire.Period = SwordTiming.resolvePeriod(meta)
-				end
-
-				local target = GrandFire.Period - math.min(dt * 0.5, GrandFire.Period * 0.06)
-				if (workspace:GetServerTimeNow() - GrandLastSrv) >= target then
-					pcall(GrandFire.attempt)
-				end
-			end
-		end)
-	end
-
-	function GrandFire.stop()
-		if GrandFire.Loop then
-			pcall(task.cancel, GrandFire.Loop)
-			GrandFire.Loop = nil
-		end
-		GrandFire.GraceTarget, GrandFire.GraceUntil = nil, 0
-		GrandFire.AcqTime, GrandFire.AcqRes = 0, nil
-		GrandFire.ItemUntil = 0
-		GrandFire.LastSword = nil
-		GrandFire.HoldTarget, GrandFire.HoldUntil = nil, 0
-		GrandLastSrv = 0
-	end
-
 	GrandKillaura = vape.Categories.Blatant:CreateModule({
 		Name = 'GrandKillaura',
 		Tooltip = 'Attack players around you\nwithout aiming at them.',
 		Function = function(callback)
 			if callback then
-				GrandAttacking = false
-				GrandLastAnimTime = 0
-				lastSwingAnim = 0
-				GrandFire.ScanCache, GrandFire.ScanTime = nil, 0
-				resetSwordCooldown()
-				GrandFire.start()
-
-				if FastHits and FastHits.Enabled then
-					startAutoShootLoop()
-				end
-
 				if inputService.TouchEnabled then
 					pcall(function()
 						lplr.PlayerGui.MobileUI['2'].Visible = GrandLimit.Enabled
 					end)
 				end
 
-				GrandAnimActive = GrandAnimation.Enabled and not (identifyexecutor and table.find({'Argon', 'Delta', 'Codex', 'Krampus', 'Solara', 'Xeno'}, ({identifyexecutor()})[1]))
-				if GrandAnimActive then
+				if FastHits and FastHits.Enabled then
+					startAutoShootLoop()
+				end
+
+				if GrandAnimation.Enabled and not (identifyexecutor and table.find({'Argon', 'Delta', 'Codex', 'Krampus', 'Solara', 'Xeno'}, ({identifyexecutor()})[1])) then
+					grandSetAnimKnit({
+						Controllers = {
+							ViewmodelController = {
+								isVisible = function()
+									return not GrandAttacking
+								end,
+								playAnimation = function(...)
+									if not GrandAttacking then
+										bedwars.ViewmodelController:playAnimation(select(2, ...))
+									end
+								end
+							}
+						}
+					})
+					GrandAnimInstalled = true
+
 					task.spawn(function()
 						local started = false
 						repeat
-							if GrandAttacking and not (GrandLegit and GrandLegit.Enabled) then
-								local okArm = pcall(function()
+							if GrandAttacking then
+								pcall(function()
 									if not GrandArmC0 then
 										GrandArmC0 = gameCamera.Viewmodel.RightHand.RightWrist.C0
 									end
 								end)
-								if not okArm then
-									runService.Heartbeat:Wait()
-									continue
-								end
-								local first = not started
-								started = true
-								if GrandAnimationMode.Value == 'Random' then
-									anims.Random = {{CFrame = CFrame.Angles(math.rad(math.random(1, 360)), math.rad(math.random(1, 360)), math.rad(math.random(1, 360))), Time = 0.12}}
-								end
-								for _, frame in anims[GrandAnimationMode.Value] do
-									pcall(function()
-										if GrandAnimTween then GrandAnimTween:Destroy() GrandAnimTween = nil end
+								if GrandArmC0 then
+									local first = not started
+									started = true
+
+									if GrandAnimationMode.Value == 'Random' then
+										anims.Random = {{CFrame = CFrame.Angles(math.rad(math.random(1, 360)), math.rad(math.random(1, 360)), math.rad(math.random(1, 360))), Time = 0.12}}
+									end
+
+									for _, frame in anims[GrandAnimationMode.Value] do
+										if GrandAnimTween then
+											pcall(function() GrandAnimTween:Cancel() end)
+											GrandAnimTween = nil
+										end
 										GrandAnimTween = tweenService:Create(gameCamera.Viewmodel.RightHand.RightWrist, TweenInfo.new(first and (GrandAnimationTween.Enabled and 0.001 or 0.1) or frame.Time / math.max(GrandAnimationSpeed.Value, 0.01), Enum.EasingStyle.Linear), {
 											C0 = GrandArmC0 * frame.CFrame
 										})
 										GrandAnimTween:Play()
 										GrandAnimTween.Completed:Wait()
-									end)
-									first = false
-									if (not GrandKillaura.Enabled) or (not GrandAttacking) then break end
+										first = false
+										if (not GrandKillaura.Enabled) or (not GrandAttacking) then break end
+									end
 								end
 							elseif started then
 								started = false
+								if GrandAnimTween then
+									pcall(function() GrandAnimTween:Cancel() end)
+									GrandAnimTween = nil
+								end
 								pcall(function()
-									if GrandAnimTween then GrandAnimTween:Destroy() GrandAnimTween = nil end
 									GrandAnimTween = tweenService:Create(gameCamera.Viewmodel.RightHand.RightWrist, TweenInfo.new(GrandAnimationTween.Enabled and 0.001 or 0.3, Enum.EasingStyle.Exponential), {
 										C0 = GrandArmC0
 									})
@@ -9739,131 +9611,96 @@ run(function()
 					end)
 				end
 
+				local swingCooldown = 0
 				repeat
-					if GrandAttackCheck.Enabled then
-						local triggered = false
-						local stunTime = lplr.Character and lplr.Character:GetAttribute('StunnedUntilTime')
-						if stunTime and stunTime > workspace:GetServerTimeNow() then triggered = true end
-						if not triggered and kitChecks then
-							for _, check in pairs(kitChecks) do
-								local ok, res = pcall(check)
-								if ok and res then triggered = true break end
-							end
-						end
-						if triggered then
-							GrandAttacking = false
-							store.GrandKillauraTarget = nil
-							for _, box in GrandBoxes do box.Adornee = nil end
-							for _, part in GrandParticles do part.Parent = nil end
-							task.wait(0.3)
-							continue
-						end
-					end
+					local attacked, sword, meta = {}, grandGetAttackData()
+					GrandAttacking = false
+					store.GrandKillauraTarget = nil
+					local selfRoot = entitylib.character and entitylib.character.RootPart
+					if sword and selfRoot then
+						local plrs = entitylib.AllPosition({
+							Range = GrandSwingRange.Value,
+							Wallcheck = GrandTargets.Walls.Enabled or nil,
+							Part = 'RootPart',
+							Players = GrandTargets.Players.Enabled,
+							NPCs = GrandTargets.NPCs.Enabled,
+							Limit = GrandMaxTargets.Value,
+							Sort = sortmethods[GrandSort.Value] or sortmethods.Distance
+						})
 
-					local sword = grandGetAttackData()
-
-					local attacked = {}
-					if sword then
-						if GrandFire.LastSword ~= sword.tool.Name and not fhBusy then
-							GrandFire.LastSword = sword.tool.Name
-							resetSwordCooldown()
-						end
-						local now = tick()
-						if not GrandFire.ScanCache or (now - GrandFire.ScanTime) >= 0.05 then
-							local avoidTarget = (Killaura and Killaura.Enabled) and store.KillauraTarget or nil
-							local plrs = entitylib.AllPosition({
-								Range = GrandSwingRange.Value,
-								Wallcheck = GrandTargets.Walls.Enabled or nil,
-								Part = 'RootPart',
-								Players = GrandTargets.Players.Enabled,
-								NPCs = GrandTargets.NPCs.Enabled,
-								Limit = GrandMaxTargets.Value,
-								Sort = sortmethods.Distance
-							})
-
-							if avoidTarget and #plrs > 1 then
-								local others = {}
-								for _, ent in plrs do
-									if ent ~= avoidTarget then
-										table.insert(others, ent)
-									end
-								end
-								if #others > 0 then
-									plrs = others
-								end
-							end
-
-							GrandFire.ScanCache = plrs
-							GrandFire.ScanTime = now
-						end
-
-						local plrs = GrandFire.ScanCache
 						if #plrs > 0 then
-							local selfpos = entitylib.character.RootPart.Position
-							local flatLV = entitylib.character.RootPart.CFrame.LookVector * Vector3.new(1, 0, 1)
-							local localfacing = flatLV.Magnitude > 0.001 and flatLV.Unit or entitylib.character.RootPart.CFrame.RightVector
-							local minDot = math.cos(math.rad(GrandAngle.Value) * 0.5)
-
-							local chosen = nil
-							local hasValidSwing = false
+							if not fhBusy and not regentBusy then
+								switchItem(sword.tool, 0)
+							end
+							local selfpos = selfRoot.Position
+							local localfacing = selfRoot.CFrame.LookVector * Vector3.new(1, 0, 1)
+							local flatFacing = localfacing.Magnitude > 0.001 and localfacing.Unit or selfRoot.CFrame.RightVector
 
 							for _, v in plrs do
 								local delta = (v.RootPart.Position - selfpos)
 								local flat = delta * Vector3.new(1, 0, 1)
-								local passesAngle = true
-								if GrandAngle.Value < 360 and flat.Magnitude > 1.0 then
-									passesAngle = localfacing:Dot(flat.Unit) >= minDot
-								end
-								if not passesAngle then continue end
+								local angle = flat.Magnitude > 0.001 and math.acos(math.clamp(flatFacing:Dot(flat.Unit), -1, 1)) or 0
+								if angle > (math.rad(GrandAngleSlider.Value) / 2) then continue end
 
-								local inReach = delta.Magnitude <= GrandAttackRange.Value
-								hasValidSwing = true
 								table.insert(attacked, {
 									Entity = v,
-									Check = inReach and GrandBoxAttackColor or GrandBoxSwingColor
+									Check = delta.Magnitude > GrandAttackRange.Value and GrandBoxSwingColor or GrandBoxAttackColor
 								})
 								targetinfo.Targets[v] = tick() + 1
 
-								if inReach and not chosen then
-									chosen = v
-								end
-							end
-
-							local liveProj = isProjectileTool(liveHandTool())
-							GrandAttacking = chosen ~= nil and not liveProj
-							if chosen then
-								GrandFire.HoldTarget = chosen
-								GrandFire.HoldUntil = tick() + 0.6
-							end
-							store.GrandKillauraTarget = chosen
-
-							if hasValidSwing then
-								if not fhBusy and not regentBusy and store.hand and store.hand.tool ~= sword.tool and not liveProj and (tick() - (store._kaSwitch or 0)) > 0.25 and tick() >= GrandFire.ItemUntil then
-									store._kaSwitch = tick()
-									switchItem(sword.tool, 0)
-								end
-
-								if not GrandSwing.Enabled and not GrandLegit.Enabled and not GrandAnimActive and not liveProj and not sword.tool.Name:find('summoner_claw') and tick() >= GrandFire.ItemUntil and (tick() - GrandLastAnimTime) >= 0.35 then
-									GrandLastAnimTime = tick()
-									if isOnTinker() then
-										playTinkerSwing()
-									end
-									if vape.ThreadFix and setthreadidentity then
-										pcall(setthreadidentity, 8)
+								if not GrandAttacking then
+									GrandAttacking = true
+									store.GrandKillauraTarget = v
+									if not GrandSwing.Enabled and GrandAnimDelay < tick() and not GrandLegitAura.Enabled then
+										GrandAnimDelay = tick() + (meta.sword and meta.sword.respectAttackSpeedForEffects and meta.sword.attackSpeed or math.max(GrandChargeTime.Value, 0.11))
+										pcall(function()
+											bedwars.SwordController:playSwordEffect(meta, false)
+										end)
+										if meta.displayName and meta.displayName:find(' Scythe') then
+											pcall(function()
+												bedwars.ScytheController:playLocalAnimation()
+											end)
+										end
+										if vape.ThreadFix then
+											pcall(setthreadidentity, 8)
+										end
 									end
 								end
+
+								if delta.Magnitude > GrandAttackRange.Value then continue end
+								if delta.Magnitude < 14.4 and (tick() - swingCooldown) < math.max(GrandChargeTime.Value, 0.02) then continue end
+
+								local actualRoot = v.Character and v.Character.PrimaryPart
+								if actualRoot then
+									local dir = CFrame.lookAt(selfpos, actualRoot.Position).LookVector
+									local pos = selfpos + dir * math.max(delta.Magnitude - 14.399, 0)
+									swingCooldown = tick()
+									bedwars.SwordController.lastAttack = workspace:GetServerTimeNow()
+									store.attackReach = (delta.Magnitude * 100) // 1 / 100
+									store.attackReachUpdate = tick() + 1
+
+									if delta.Magnitude < 14.4 and GrandChargeTime.Value > 0.11 then
+										GrandAnimDelay = tick()
+									end
+
+									if AttackRemote then
+										AttackRemote:FireServer({
+											weapon = sword.tool,
+											chargedAttack = {chargeRatio = 0},
+											lastSwingServerTimeDelta = 0.5,
+											entityInstance = v.Character,
+											validate = {
+												raycast = {
+													cameraPosition = {value = pos},
+													cursorDirection = {value = dir}
+												},
+												targetPosition = {value = actualRoot.Position},
+												selfPosition = {value = pos}
+											}
+										})
+									end
+								end
 							end
-						else
-							GrandAttacking = false
-							store.GrandKillauraTarget = nil
-						end
-					else
-						GrandAttacking = false
-						if GrandFire.HoldTarget and tick() < (GrandFire.HoldUntil or 0) and GrandFire.aliveTarget(GrandFire.HoldTarget)
-							and (isProjectileTool(liveHandTool()) or (GrandFire.ScanCache and #GrandFire.ScanCache == 0)) then
-							store.GrandKillauraTarget = GrandFire.HoldTarget
-						else
-							store.GrandKillauraTarget = nil
 						end
 					end
 
@@ -9890,22 +9727,29 @@ run(function()
 					task.wait(1 / math.max(GrandUpdateRate.Value, 1))
 				until not GrandKillaura.Enabled
 			else
-				GrandFire.stop()
-				GrandFire.ScanCache, GrandFire.ScanTime = nil, 0
+				GrandAttacking = false
 				store.GrandKillauraTarget = nil
 				if not (Killaura and Killaura.Enabled) then
 					stopAutoShootLoop()
 				end
-				for _, box in GrandBoxes do box.Adornee = nil end
-				for _, part in GrandParticles do part.Parent = nil end
-				if inputService.TouchEnabled then
-					pcall(function() lplr.PlayerGui.MobileUI['2'].Visible = true end)
+				for _, box in GrandBoxes do
+					box.Adornee = nil
 				end
-				GrandAttacking = false
-				GrandAnimActive = false
+				for _, part in GrandParticles do
+					part.Parent = nil
+				end
+				if inputService.TouchEnabled then
+					pcall(function()
+						lplr.PlayerGui.MobileUI['2'].Visible = true
+					end)
+				end
+				if GrandAnimInstalled then
+					GrandAnimInstalled = false
+					grandSetAnimKnit(bedwars.Knit)
+				end
 				if GrandArmC0 then
 					pcall(function()
-						if GrandAnimTween then GrandAnimTween:Destroy() GrandAnimTween = nil end
+						if GrandAnimTween then GrandAnimTween:Cancel() GrandAnimTween = nil end
 						GrandAnimTween = tweenService:Create(gameCamera.Viewmodel.RightHand.RightWrist, TweenInfo.new(GrandAnimationTween.Enabled and 0.001 or 0.3, Enum.EasingStyle.Exponential), {
 							C0 = GrandArmC0
 						})
@@ -9924,16 +9768,33 @@ run(function()
 	GrandSwingRange = GrandKillaura:CreateSlider({
 		Name = 'Swing range',
 		Min = 1,
-		Max = 40,
-		Default = 40,
-		Suffix = function(val) return val == 1 and 'stud' or 'studs' end
+		Max = 18,
+		Default = 18,
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end
 	})
 	GrandAttackRange = GrandKillaura:CreateSlider({
 		Name = 'Attack range',
 		Min = 1,
-		Max = 24,
-		Default = 24,
-		Suffix = function(val) return val == 1 and 'stud' or 'studs' end
+		Max = 18,
+		Default = 18,
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end
+	})
+	GrandChargeTime = GrandKillaura:CreateSlider({
+		Name = 'Swing time',
+		Min = 0,
+		Max = 0.5,
+		Default = 0.42,
+		Decimal = 100
+	})
+	GrandAngleSlider = GrandKillaura:CreateSlider({
+		Name = 'Max angle',
+		Min = 1,
+		Max = 360,
+		Default = 360
 	})
 	GrandUpdateRate = GrandKillaura:CreateSlider({
 		Name = 'Update rate',
@@ -9942,22 +9803,27 @@ run(function()
 		Default = 60,
 		Suffix = 'hz'
 	})
-	GrandAngle = GrandKillaura:CreateSlider({
-		Name = 'Max angle',
-		Min = 1,
-		Max = 360,
-		Default = 360
-	})
 	GrandMaxTargets = GrandKillaura:CreateSlider({
 		Name = 'Max targets',
 		Min = 1,
 		Max = 5,
 		Default = 5
 	})
+	GrandSort = GrandKillaura:CreateDropdown({
+		Name = 'Target Mode',
+		List = (function()
+			local methods = {'Distance'}
+			for name in sortmethods do
+				if not table.find(methods, name) then
+					table.insert(methods, name)
+				end
+			end
+			return methods
+		end)()
+	})
 	GrandMouse = GrandKillaura:CreateToggle({Name = 'Require mouse down'})
 	GrandSwing = GrandKillaura:CreateToggle({Name = 'No Swing'})
 	GrandGUI = GrandKillaura:CreateToggle({Name = 'GUI check'})
-
 	GrandKillaura:CreateToggle({
 		Name = 'Show target',
 		Function = function(cb)
@@ -9995,7 +9861,6 @@ run(function()
 		DefaultOpacity = 0.5,
 		Visible = false
 	})
-
 	GrandKillaura:CreateToggle({
 		Name = 'Target particles',
 		Function = function(cb)
@@ -10102,13 +9967,15 @@ run(function()
 			end
 		end
 	})
-	local grandAnimNames = {}
-	for i in anims do
-		table.insert(grandAnimNames, i)
-	end
 	GrandAnimationMode = GrandKillaura:CreateDropdown({
 		Name = 'Animation Mode',
-		List = grandAnimNames,
+		List = (function()
+			local names = {}
+			for i in anims do
+				table.insert(names, i)
+			end
+			return names
+		end)(),
 		Darker = true,
 		Visible = false
 	})
@@ -10137,13 +10004,13 @@ run(function()
 		end,
 		Tooltip = 'Only attacks when the sword is held'
 	})
-	GrandLegit = GrandKillaura:CreateToggle({
+	GrandLegitAura = GrandKillaura:CreateToggle({
 		Name = 'Swing only',
 		Tooltip = 'Only attacks while swinging manually'
 	})
-	GrandAttackCheck = GrandKillaura:CreateToggle({
-		Name = 'Attack Check',
-		Tooltip = 'checks if attacking ina legit way',
+	GrandAttackable = GrandKillaura:CreateToggle({
+		Name = 'Attackable check',
+		Tooltip = 'Stops attacking while stunned, frozen, or in the elk state',
 		Default = false
 	})
 
