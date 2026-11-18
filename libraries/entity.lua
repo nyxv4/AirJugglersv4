@@ -45,11 +45,6 @@ local inputService = cloneref(game:GetService('UserInputService'))
 local lplr = playersService.LocalPlayer
 local gameCamera = workspace.CurrentCamera
 
-local _wallcheckIgnore = nil
-local function invalidateWallcheck()
-	_wallcheckIgnore = nil
-end
-
 local function getMousePosition()
 	if inputService.TouchEnabled then
 		return gameCamera.ViewportSize / 2
@@ -114,22 +109,14 @@ entitylib.Raycast = function(origin, direction, params)
 end
 entitylib.Wallcheck = function(origin, position, ignoreobject, entity)
 	if typeof(ignoreobject) ~= 'Instance' then
-		if not _wallcheckIgnore then
-			local ignorelist = {gameCamera}
-			if lplr.Character then
-				table.insert(ignorelist, lplr.Character)
+		local ignorelist = {gameCamera, lplr.Character}
+		for _, ent in entitylib.List do
+			if ent.Targetable then
+				table.insert(ignorelist, ent.Character)
 			end
-			for _, ent in entitylib.List do
-				if ent.Targetable and ent.Character then
-					table.insert(ignorelist, ent.Character)
-				end
-			end
-			_wallcheckIgnore = ignorelist
 		end
 
-		local ignorelist = _wallcheckIgnore
-		if typeof(ignoreobject) == 'table' and #ignoreobject > 0 then
-			ignorelist = table.clone(_wallcheckIgnore)
+		if typeof(ignoreobject) == 'table' then
 			for _, obj in ignoreobject do
 				table.insert(ignorelist, obj)
 			end
@@ -315,7 +302,6 @@ entitylib.addEntity = function(char, plr, teamfunc, spawntime)
 				entitylib.character = entity
 				entitylib.isAlive = true
 				entitylib.Events.LocalAdded:Fire(entity)
-				invalidateWallcheck()
 			else
 				entity.Targetable = entitylib.targetCheck(entity)
 
@@ -329,7 +315,6 @@ entitylib.addEntity = function(char, plr, teamfunc, spawntime)
 
 				table.insert(entitylib.List, entity)
 				entitylib.Events.EntityAdded:Fire(entity)
-				invalidateWallcheck()
 			end
 			--[[table.insert(entity.Connections, char.ChildRemoved:Connect(function(part)
 				if (part == humrootpart or part == hum or part == head) then
@@ -364,7 +349,6 @@ entitylib.removeEntity = function(char, isLocal)
 			end
 			table.clear(entitylib.character.Connections)
 			entitylib.Events.LocalRemoved:Fire(entitylib.character)
-			invalidateWallcheck()
 			--table.clear(entitylib.character)
 		end
 
@@ -386,7 +370,6 @@ entitylib.removeEntity = function(char, isLocal)
 			table.clear(entity.Connections)
 			table.remove(entitylib.List, index)
 			entitylib.Events.EntityRemoved:Fire(entity)
-			invalidateWallcheck()
 		end
 	end
 end
@@ -456,7 +439,6 @@ entitylib.start = function()
 		end),
 		workspace:GetPropertyChangedSignal('CurrentCamera'):Connect(function()
 			gameCamera = workspace.CurrentCamera or workspace:FindFirstChildWhichIsA('Camera')
-			invalidateWallcheck()
 		end)
 	}
 

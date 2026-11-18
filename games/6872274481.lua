@@ -631,16 +631,8 @@ local function hotbarSwitch(slot)
 			type = 'InventorySelectHotbarSlot',
 			slot = slot
 		})
-		local done = false
-		local conn = vapeEvents.InventoryChanged.Event:Connect(function()
-			done = true
-		end)
-		local start = tick()
-		repeat
-			task.wait()
-		until done or tick() - start > 0.5
-		conn:Disconnect()
-		return done
+		vapeEvents.InventoryChanged.Event:Wait()
+		return true
 	end
 	return false
 end
@@ -701,19 +693,6 @@ local function switchItem(tool, delayTime)
 		end
 		return true
 	end
-end
-
-local function awaitHandEquip(tool, timeout)
-	if not tool then return false end
-	local name = tool.Name
-	timeout = timeout or 0.4
-	local deadline = tick() + timeout
-	while tick() < deadline do
-		local hand = store.hand and store.hand.tool
-		if hand and (hand == tool or hand.Name == name) then return true end
-		task.wait()
-	end
-	return false
 end
 
 local function liveHandTool()
@@ -3403,7 +3382,6 @@ run(function()
 	local PriorityMode
 	local ShakeToggle
 	local ShakeAmount
-	local ShakeDistance
 	local WorkWithProjectiles
 	local projRayCheck = RaycastParams.new()
 	projRayCheck.FilterType = Enum.RaycastFilterType.Include
@@ -3527,24 +3505,6 @@ run(function()
 						armed = getHeldProjectileMeta() ~= nil
 					end
 					if not armed then return end
-					if ShakeDistance then
-						local root = entitylib.character and entitylib.character.RootPart
-						local best = math.huge
-						if root then
-							for _, ent in entitylib.List do
-								if ent.Targetable and ent.RootPart and ent.Character then
-									if (ent.Player and not (Targets and Targets.Players and Targets.Players.Enabled))
-										or (ent.NPC and not (Targets and Targets.NPCs and Targets.NPCs.Enabled)) then continue end
-									local hum = ent.Humanoid
-									if hum and hum.Health > 0 then
-										local d = (ent.RootPart.Position - root.Position).Magnitude
-										if d < best then best = d end
-									end
-								end
-							end
-						end
-						if best > ShakeDistance.Value then return end
-					end
 					shakeTime = shakeTime + math.min(dt, 1 / 30)
 					local amp = math.rad(ShakeAmount.Value * 0.5)
 					local yaw = math.noise(shakeTime * 2.4, shakeSeed, 0) * amp
@@ -3842,7 +3802,6 @@ run(function()
 		Tooltip = 'shakes your screen for more legitness',
 		Function = function(callback)
 			if ShakeAmount then ShakeAmount.Object.Visible = callback end
-			if ShakeDistance then ShakeDistance.Object.Visible = callback end
 		end
 	})
 
@@ -3852,17 +3811,6 @@ run(function()
 		Max = 10,
 		Default = 3,
 		Visible = false
-	})
-
-	ShakeDistance = AimAssist:CreateSlider({
-		Name = 'Shake Distance',
-		Min = 1,
-		Max = 60,
-		Default = 30,
-		Visible = false,
-		Suffix = function(val)
-			return val == 1 and 'stud' or 'studs'
-		end
 	})
 
 	ShopCheck = AimAssist:CreateToggle({
@@ -3882,9 +3830,6 @@ run(function()
 		end
 		if ShakeAmount and ShakeAmount.Object then
 			ShakeAmount.Object.Visible = false
-		end
-		if ShakeDistance and ShakeDistance.Object then
-			ShakeDistance.Object.Visible = false
 		end
 	end)
 end)
@@ -7918,24 +7863,20 @@ run(function()
 		local token = fhRestoreToken
 		check.Value = sw.tool
 		task.spawn(function()
-			local deadline = tick() + 0.4
-			local nextSend = tick() + 0.05
-			repeat
-				task.wait()
+			pcall(function() bedwars.Client:Get(remotes.EquipItem):CallServerAsync({hand = sw.tool}) end)
+			for _ = 1, 3 do
+				task.wait(0)
 				if token ~= fhRestoreToken then return end
 				if not sw.tool.Parent then return end
 				if not Killaura or not Killaura.Enabled then return end
-				if isProjectileTool(liveHandTool()) and liveHandTool() ~= sw.tool then return end
-				local hand = store.hand and store.hand.tool
-				if hand and (hand == sw.tool or hand.Name == sw.tool.Name) then return end
-				local now = tick()
-				if now > deadline then return end
-				if now >= nextSend then
-					nextSend = now + 0.05
+				if isProjectileTool(liveHandTool()) then return end
+				if check.Value ~= sw.tool or (store.hand and store.hand.tool ~= sw.tool) then
 					check.Value = sw.tool
 					pcall(function() bedwars.Client:Get(remotes.EquipItem):CallServerAsync({hand = sw.tool}) end)
+				else
+					return
 				end
-			until false
+			end
 		end)
 	end
 
@@ -8045,9 +7986,6 @@ run(function()
 				return false
 			end
 			selfPos = root.Position
-		end
-		if ignoreSwitch and not awaitHandEquip(item.tool, fhSwapTimeout()) then
-			return false
 		end
 
 		local gravity = tonumber(meta.gravitationalAcceleration) or 196.2
@@ -12650,7 +12588,7 @@ run(function()
 		pos = pos - dir * 0.1
 		local shootPosition = (CFrame.lookAlong(pos, Vector3.new(0, -speed, 0)) * CFrame.new(Vector3.new(-bedwars.BowConstantsTable.RelX, -bedwars.BowConstantsTable.RelY, -bedwars.BowConstantsTable.RelZ)))
 		switchItem(item.tool, 0)
-		if not awaitHandEquip(item.tool, 0.35) then return end
+		task.wait(0.1)
 		bedwars.ProjectileController:createLocalProjectile(bedwars.ProjectileMeta[proj], proj, proj, shootPosition.Position, '', shootPosition.LookVector * speed, {drawDurationSeconds = 1})
 		if projectileRemote:InvokeServer(item.tool, proj, proj, shootPosition.Position, pos, shootPosition.LookVector * speed, httpService:GenerateGUID(true), {drawDurationSeconds = 1}, workspace:GetServerTimeNow() - 0.045) then
 			local shoot = bedwars.ItemMeta[item.itemType].projectileSource.launchSound
@@ -21397,9 +21335,7 @@ run(function()
     			task.wait(0.05)
     		end
     	end
-
-    	if not awaitHandEquip(item.tool, 0.4) then return end
-
+    
     	local meta = bedwars.ProjectileMeta.telepearl
     	local calc = prediction.SolveTrajectory(pos, meta.launchVelocity, meta.gravitationalAcceleration, spot, Vector3.zero, workspace.Gravity, 0, 0)
     
@@ -28554,13 +28490,6 @@ run(function()
 			hotbarSwitch(lassoSlot)
 			task.wait(0.03)
 			swapped = true
-		end
-
-		if not awaitHandEquip(lasso.tool, 0.4) then
-			if swapped then
-				hotbarSwitch(originalSlot)
-			end
-			return false
 		end
 
 		local res = projectileRemote:InvokeServer(
