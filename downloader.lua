@@ -92,8 +92,12 @@ if not shared.VapeDeveloper then
 		pcall(writefile, 'NYX/profiles/latest.txt', h)
 	elseif #latest == 40 then
 		commit = latest
+		forceRef = pinnedCommit or latest
 	elseif #commit ~= 40 then
 		commit = 'main'
+	end
+	if forceRef == 'main' and not pinnedCommit and type(commit) == 'string' and #commit == 40 then
+		forceRef = commit
 	end
 	if commit ~= 'main' and (isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt') or '') ~= commit then
 		wipeFolder('NYX')

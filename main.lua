@@ -90,6 +90,13 @@ if bootstrapCommit and bootstrapCommit ~= '' then
 end
 if bootstrapCommit and #bootstrapCommit == 40 then latestCommit = bootstrapCommit end
 
+local function resolveBuildCommit()
+	if type(latestCommit) == 'string' and #latestCommit == 40 then return latestCommit end
+	local cached = isfile('NYX/profiles/latest.txt') and readfile('NYX/profiles/latest.txt') or ''
+	if type(cached) == 'string' and #cached == 40 then return cached end
+	return 'main'
+end
+
 if identifyexecutor and table.find({'Madium', 'Medium'}, ({identifyexecutor()})[1]) then
 	local realgca = getcustomasset or getsynasset
 	if realgca then
@@ -152,6 +159,13 @@ local function downloadFile(path, func, forceRef)
 	return (func or readfile)(path)
 end
 
+local function fetchFile(path, commit)
+	local ok, res = pcall(downloadFile, path, nil, commit)
+	if ok and type(res) == 'string' and res ~= '' then return res end
+	if isfile(path) then return readfile(path) end
+	return nil
+end
+
 local function migrateProfiles()
 	if isfile('NYX/profiles/migrated_placeid.txt') then return end
 
@@ -208,8 +222,15 @@ local function finishLoading()
 	local function buildTeleportScript()
 		if shared.VapeIndependent then return nil end
 
-		local closetArg = getgenv().Closet and '({Closet=true})' or '()'
-		local teleportScript = 'shared.vapereload = true\nloadstring(game:HttpGet("' .. LOADER_URL .. '", true), "loader")' .. closetArg
+		local argParts = {}
+		if type(latestCommit) == 'string' and #latestCommit == 40 then
+			table.insert(argParts, 'Commit = "' .. latestCommit .. '"')
+		end
+		if getgenv().Closet then
+			table.insert(argParts, 'Closet = true')
+		end
+		local args = #argParts > 0 and ('({' .. table.concat(argParts, ', ') .. '})') or '()'
+		local teleportScript = 'shared.vapereload = true\nloadstring(game:HttpGet("' .. LOADER_URL .. '", true), "loader")' .. args
 
 		if identifyexecutor and ({identifyexecutor()})[1] == 'Potassium' then
 			teleportScript = 'task.wait(12)\n' .. teleportScript
@@ -253,13 +274,9 @@ if not isfolder('NYX/assets/' .. gui) then
 end
 
 local guiPath = 'NYX/guis/' .. gui .. '.lua'
-local guiBuild = '--NYXBUILD:nyx8'
-local guiSource = isfile(guiPath) and readfile(guiPath) or ''
-if type(guiSource) ~= 'string' or not guiSource:find(guiBuild, 1, true) then
-	pcall(delfile, guiPath)
-	guiSource = downloadFile(guiPath, nil, latestCommit or 'main')
-else
-	guiSource = downloadFile(guiPath)
+local guiSource = fetchFile(guiPath, resolveBuildCommit())
+if not guiSource then
+	error('[NYX] could not download ' .. guiPath .. ' and no cached copy exists')
 end
 local guiFunc, guiErr = loadstring(guiSource, 'gui')
 if not guiFunc then
@@ -332,11 +349,19 @@ if getgenv().Closet then
 end
 
 if not shared.VapeIndependent then
-	loadstring(downloadFile('NYX/games/universal.lua', nil, latestCommit), 'universal')()
+	local buildCommit = resolveBuildCommit()
+	local universalSrc = fetchFile('NYX/games/universal.lua', buildCommit)
+	if not universalSrc then
+		error('[NYX] could not download universal.lua')
+	end
+	loadstring(universalSrc, 'universal')()
 	local gameFileId = (game.GameId == 2619619496) and (game.PlaceId == 6872265039 and 6872265039 or 6872274481) or (game.GameId == 10516888336 and 10516888336 or game.PlaceId)
 
 	if isfile('NYX/games/' .. gameFileId .. '.lua') and #readfile('NYX/games/' .. gameFileId .. '.lua') > 0 then
-		local gameSrc = downloadFile('NYX/games/' .. gameFileId .. '.lua', nil, latestCommit)
+		local gameSrc = fetchFile('NYX/games/' .. gameFileId .. '.lua', buildCommit)
+		if not gameSrc then
+			error('[NYX] could not download ' .. gameFileId .. '.lua and no cached copy exists')
+		end
 		local gameFunc, gameErr = loadstring(gameSrc, tostring(gameFileId))
 		if not gameFunc then
 			local ls = gameSrc:split('\n')
@@ -380,7 +405,7 @@ if not shared.VapeIndependent then
 	else
 		if not shared.VapeDeveloper then
 			local ok, res = pcall(function()
-				return downloadFile('NYX/games/' .. gameFileId .. '.lua', nil, latestCommit)
+				return fetchFile('NYX/games/' .. gameFileId .. '.lua', buildCommit)
 			end)
 			if ok and type(res) == 'string' and #res > 0 then
 				loadstring(res, tostring(gameFileId))(...)
