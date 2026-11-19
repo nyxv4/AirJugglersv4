@@ -8150,7 +8150,7 @@ run(function()
 					if not verified and type(getFlag) == 'function' then
 						verified = true
 						local ok, val = pcall(getFlag, 'DFIntWorldStepMax')
-						local applied = tostring(string.format('%.0f', -2147483648 * ((tonumber(Latency.Value) or 0) <= 1 and 1.5 or tonumber(Latency.Value)) / 1000)))
+						local applied = tostring(string.format('%.0f', -2147483648 * ((tonumber(Latency.Value) or 0) <= 1 and 1.5 or tonumber(Latency.Value)) / 1000))
 						if not (ok and val ~= nil and tostring(val) == applied) then
 							pcall(warn or print, '[FrameBuffer] executor blocked DFInt flag writes - module may not work')
 						end
