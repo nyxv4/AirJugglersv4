@@ -106,26 +106,43 @@ end
 
 entitylib.IgnoreObject = RaycastParams.new()
 entitylib.IgnoreObject.RespectCanCollide = true
+local wallIgnoreCache = nil
+local wallIgnoreCount = -1
+local wallIgnoreDirty = true
+entitylib.InvalidateWallcheck = function()
+	wallIgnoreDirty = true
+end
 entitylib.Raycast = function(origin, direction, params)
 	return workspace:Raycast(origin, direction, params)
 end
 entitylib.Wallcheck = function(origin, position, ignoreobject, entity)
 	if typeof(ignoreobject) ~= 'Instance' then
-		local ignorelist = {gameCamera, lplr.Character}
-		for _, ent in entitylib.List do
-			if ent.Targetable and ent.Character and ent.Character.Parent then
-				table.insert(ignorelist, ent.Character)
+		if typeof(ignoreobject) ~= 'table' and not wallIgnoreDirty and wallIgnoreCache and wallIgnoreCount == #entitylib.List then
+			ignoreobject = entitylib.IgnoreObject
+		else
+			local ignorelist = {gameCamera, lplr.Character}
+			for _, ent in entitylib.List do
+				if ent.Targetable and ent.Character and ent.Character.Parent then
+					table.insert(ignorelist, ent.Character)
+				end
 			end
-		end
 
-		if typeof(ignoreobject) == 'table' then
-			for _, obj in ignoreobject do
-				table.insert(ignorelist, obj)
+			if typeof(ignoreobject) == 'table' then
+				for _, obj in ignoreobject do
+					table.insert(ignorelist, obj)
+				end
 			end
-		end
 
-		ignoreobject = entitylib.IgnoreObject
-		ignoreobject.FilterDescendantsInstances = ignorelist
+			entitylib.IgnoreObject.FilterDescendantsInstances = ignorelist
+			if typeof(ignoreobject) ~= 'table' then
+				wallIgnoreCache = ignorelist
+				wallIgnoreCount = #entitylib.List
+				wallIgnoreDirty = false
+			else
+				wallIgnoreDirty = true
+			end
+			ignoreobject = entitylib.IgnoreObject
+		end
 	end
 	local blocked = entitylib.Raycast(origin, position - origin, ignoreobject)
 	if not blocked then
@@ -344,6 +361,7 @@ entitylib.addEntity = function(char, plr, teamfunc, spawntime)
 				end
 
 				table.insert(entitylib.List, entity)
+				wallIgnoreDirty = true
 				entitylib.Events.EntityAdded:Fire(entity)
 			end
 			--[[table.insert(entity.Connections, char.ChildRemoved:Connect(function(part)
@@ -399,6 +417,7 @@ entitylib.removeEntity = function(char, isLocal)
 
 			table.clear(entity.Connections)
 			table.remove(entitylib.List, index)
+			wallIgnoreDirty = true
 			entitylib.Events.EntityRemoved:Fire(entity)
 		end
 	end

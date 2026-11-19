@@ -1185,6 +1185,7 @@ run(function()
 						})
 					end
 					table.insert(entitylib.List, entity)
+					if entitylib.InvalidateWallcheck then entitylib.InvalidateWallcheck() end
 					entitylib.Events.EntityAdded:Fire(entity)
 				end
 
@@ -2465,6 +2466,7 @@ run(function()
 				end
 			end
 			table.clear(entitylib.List)
+			if entitylib.InvalidateWallcheck then entitylib.InvalidateWallcheck() end
 		end
 		if entitylib.stop then
 			entitylib.stop()
@@ -8894,7 +8896,7 @@ run(function()
 				local _gatherCache = nil
 				local _gatherCacheTime = 0
 				local function gatherTargets()
-					if _gatherCache and (tick() - _gatherCacheTime) < 0.05 then
+					if _gatherCache and (tick() - _gatherCacheTime) < 0.1 then
 						return _gatherCache[1], _gatherCache[2]
 					end
 
@@ -9063,7 +9065,7 @@ run(function()
 						end
 					end
 
-					task.wait()
+					task.wait(0.02)
 				until not Killaura.Enabled
 			else
 				stopAutoShootLoop()
