@@ -2229,7 +2229,11 @@ aimlib.SolveTrajectory = function(from, spd, grav, foe_pos, foe_vel, plr_grav, t
 			return aim, spot, t
 		end
 	end
-	return inner_solve(from, spd, grav, foe_pos, foe_vel, plr_grav, tall, hop, cast, inair, core_pos, core, lo_t, strict, ...)
+	local res = table.pack(inner_solve(from, spd, grav, foe_pos, foe_vel, plr_grav, tall, hop, cast, inair, core_pos, core, lo_t, strict, ...))
+	if strict and res[1] == nil then
+		res = table.pack(inner_solve(from, spd, grav, foe_pos, foe_vel, plr_grav, tall, hop, cast, inair, core_pos, core, lo_t, false, ...))
+	end
+	return table.unpack(res, 1, res.n)
 end
 
 return aimlib

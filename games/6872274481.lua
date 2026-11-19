@@ -7427,6 +7427,7 @@ run(function()
 	end
 
 	local lastThirdTrack
+	local auraSwingUntil = 0
 	local function playAuraSwing(meta, sword)
 		local data = meta and meta.sword
 		if not data then return end
@@ -7466,6 +7467,8 @@ run(function()
 				pcall(lastThirdTrack.Stop, lastThirdTrack, 0)
 			end
 			lastThirdTrack = playSwingTrack(lplr.Character, thirdId)
+			local trackLen = lastThirdTrack and lastThirdTrack.Length or 0
+			auraSwingUntil = tick() + math.max(AURA_SWING_INTERVAL, trackLen * 0.9)
 		end
 
 		local viewmodel = bedwars.ViewmodelController
@@ -8708,7 +8711,7 @@ run(function()
 
 		-- Cosmetic swing runs slower than the hits on purpose; sends are untouched.
 		local swingInterval = store.auraSwingInterval or AURA_SWING_INTERVAL
-		if not store.noAuraSwing and tick() - lastSwingAnim >= swingInterval then
+		if not store.noAuraSwing and tick() - lastSwingAnim >= swingInterval and tick() >= auraSwingUntil then
 			playAuraSwing(meta, sword)
 			lastSwingAnim = tick()
 			lastAnimTime = lastSwingAnim
@@ -10559,7 +10562,7 @@ run(function()
 	local Particles, Boxes = {}, {}
 	local HitRandom: Random = Random.new()
 	local ContinueUntil: number = 0
-	local SwingGap: number = 0.11
+	local SwingGap: number = 0.35
 	local LastEffect, LastAttack, OldSwing, SwingHook = 0, 0, nil, nil
 	local EffectSwing: number = 0
 	local Session = nil
@@ -10894,7 +10897,7 @@ run(function()
 						return
 					end
 					LastEffect = tick()
-					SwingGap = math.max(SwingTime:GetRandomValue(), 0.11)
+					SwingGap = math.max(SwingTime:GetRandomValue(), 0.35)
 					return PreviousSwing(self, SwordMeta, Charged, Config)
 				end
 				SwingHook = Hook
@@ -11207,7 +11210,7 @@ run(function()
 										store.attacking = true
 										store.KillauraTarget = v
 										if not Swing.Enabled and AnimDelay < tick() and not LegitAura.Enabled then
-											local SwingDelay: number = math.max(SwingTime:GetRandomValue(), 0.11)
+											local SwingDelay: number = math.max(SwingTime:GetRandomValue(), 0.35)
 											AnimDelay = tick() + SwingDelay
 											Swung = true
 											local Mount: Model? = getTinkerMount()
@@ -11455,7 +11458,7 @@ run(function()
 						if #Attacked > 0 then
 							ContinueUntil = tick() + (ContinueSwing:GetRandomValue() / 1000)
 						elseif Sword and SwordMeta and tick() < ContinueUntil and AnimDelay < tick() and not Swing.Enabled and not LegitAura.Enabled then
-							local SwingDelay: number = math.max(SwingTime:GetRandomValue(), 0.11)
+							local SwingDelay: number = math.max(SwingTime:GetRandomValue(), 0.35)
 							AnimDelay = tick() + SwingDelay
 							local Mount: Model? = getTinkerMount()
 							if Mount then
@@ -11585,10 +11588,10 @@ run(function()
 	})
 	SwingTime = Killaura:CreateTwoSlider({
 		Name = "Swing time",
-		Min = 0.11,
+		Min = 0.35,
 		Max = 2,
-		DefaultMin = 0.11,
-		DefaultMax = 0.11,
+		DefaultMin = 0.35,
+		DefaultMax = 0.35,
 		Decimal = 100,
 		Tooltip = 'Time between swing animations'
 	})

@@ -8076,6 +8076,10 @@ run(function()
 		or (type(getFFlag) == 'function' and getFFlag)
 		or (type(getgenv) == 'function' and getgenv().getfflag)
 		or (type(getgenv) == 'function' and getgenv().getFFlag)
+	local setFlag = (type(setfflag) == 'function' and setfflag)
+		or (type(setFFlag) == 'function' and setFFlag)
+		or (type(getgenv) == 'function' and getgenv().setfflag)
+		or (type(getgenv) == 'function' and getgenv().setFFlag)
 
 	local flagNames = {
 		'DFIntDebugDefaultTargetWorldStepsPerFrame',
@@ -8099,11 +8103,11 @@ run(function()
 	captureDefaults()
 
 	local function restoreFFlags()
-		if type(setfflag) ~= 'function' then return end
+		if type(setFlag) ~= 'function' then return end
 		for _, name in flagNames do
 			local val = defaults[name]
 			if val then
-				pcall(setfflag, name, val)
+				pcall(setFlag, name, val)
 			end
 		end
 	end
@@ -8121,24 +8125,36 @@ run(function()
 		local str = string.format('%.0f', NEW)
 		local str2 = string.format('%.0f', NEW2)
 
-		pcall(setfflag, 'DFIntDebugDefaultTargetWorldStepsPerFrame', str)
-		pcall(setfflag, 'DFIntMaxMissedWorldStepsRemembered', str)
-		pcall(setfflag, 'DFIntWorldStepsOffsetAdjustRate', str2)
-		pcall(setfflag, 'DFIntDebugSendDistInSteps', str)
-		pcall(setfflag, 'DFIntWorldStepMax', str)
-		pcall(setfflag, 'DFIntWarpFactor', str2)
+		pcall(setFlag, 'DFIntDebugDefaultTargetWorldStepsPerFrame', str)
+		pcall(setFlag, 'DFIntMaxMissedWorldStepsRemembered', str)
+		pcall(setFlag, 'DFIntWorldStepsOffsetAdjustRate', str2)
+		pcall(setFlag, 'DFIntDebugSendDistInSteps', str)
+		pcall(setFlag, 'DFIntWorldStepMax', str)
+		pcall(setFlag, 'DFIntWarpFactor', str2)
 	end
 
 	FrameBuffer = vape.Categories.Blatant:CreateModule({
 		Name = 'FrameBuffer',
 		Function = function(callback)
 			if callback then
-				if type(setfflag) ~= 'function' then
+				if type(setFlag) ~= 'function' then
 					warn('[FrameBuffer] setfflag is not supported on this executor')
 					return
 				end
+				if setthreadidentity then
+					pcall(setthreadidentity, 8)
+				end
+				local verified = false
 				repeat
 					applyFFlags(Latency.Value, Rate.Value)
+					if not verified and type(getFlag) == 'function' then
+						verified = true
+						local ok, val = pcall(getFlag, 'DFIntWorldStepMax')
+						local applied = tostring(string.format('%.0f', -2147483648 * ((tonumber(Latency.Value) or 0) <= 1 and 1.5 or tonumber(Latency.Value)) / 1000)))
+						if not (ok and val ~= nil and tostring(val) == applied) then
+							warn('[FrameBuffer] executor blocked DFInt flag writes - module may not work')
+						end
+					end
 					task.wait(1 / math.max(tonumber(Rate.Value) or 60, 1))
 				until not FrameBuffer.Enabled
 
