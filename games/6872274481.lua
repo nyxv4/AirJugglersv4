@@ -715,6 +715,12 @@ local function isProjectileTool(tool)
 	return projectileToolName(tool.Name)
 end
 
+local function handIsProjectile()
+	local serverTool = store.hand and store.hand.tool
+	if serverTool then return isProjectileTool(serverTool) end
+	return isProjectileTool(liveHandTool())
+end
+
 local handDesyncAt = 0
 local function syncHandDesync()
 	local check = lplr.Character and lplr.Character:FindFirstChild('HandInvItem')
@@ -8633,7 +8639,7 @@ run(function()
 	local function attemptFire(forcedTarget, rangeLimit, frameDelta, attackData)
 		-- A sword hit while a bow/other projectile is in hand cancels the shot; the player
 		-- picked that item on purpose, so the aura stands down until they switch back.
-		if isProjectileTool(liveHandTool()) then return false end
+		if handIsProjectile() then return false end
 		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
 
 		-- A sword hit sent right behind a bolt would cancel it; the bow stays raised until the
@@ -9109,7 +9115,7 @@ run(function()
 	AttackRange = Killaura:CreateSlider({
 		Name = 'Attack range',
 			Min = 1,
-			Max = 22,
+			Max = 40,
 			Default = 22,
 			Suffix = function(val) return val == 1 and 'stud' or 'studs' end
 	})
@@ -9924,7 +9930,7 @@ run(function()
 	GrandAttackRange = GrandKillaura:CreateSlider({
 		Name = 'Attack range',
 		Min = 1,
-		Max = 24,
+		Max = 40,
 		Default = 24,
 		Suffix = function(val) return val == 1 and 'stud' or 'studs' end
 	})
@@ -10604,7 +10610,7 @@ run(function()
 	local SelfLagLow: number = 0.07
 	local SelfLagHigh: number = 0.11
 	local ClaimLag: number = 0.05
-	local ServerReach: number = 3.6
+	local ServerReach: number = 10
 	local RangeMargin: number = 0.4
 	local ClaimMargin: number = 1
 	local LagCap: number = 8
@@ -11082,7 +11088,7 @@ run(function()
 							Sword = Limit.Enabled and store.hand or store.tools.sword
 							if not Sword or not Sword.tool then
 								Sword = nil
-							elseif isProjectileTool(liveHandTool()) then
+							elseif handIsProjectile() then
 								-- the player picked a bow/projectile on purpose; don't yank the sword back
 								Sword = nil
 							elseif Limit.Enabled and (store.hand.toolType ~= "sword" or bedwars.DaoController.chargingMaid) then
@@ -11547,7 +11553,7 @@ run(function()
 	AttackRange = Killaura:CreateSlider({
 		Name = "Attack range",
 		Min = 1,
-		Max = 18.1,
+		Max = 40,
 		Default = 18.1,
 		Suffix = function(Val: number)
 			return Val == 1 and "stud" or "studs"
