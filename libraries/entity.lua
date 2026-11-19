@@ -94,7 +94,9 @@ entitylib.getUpdateConnections = function(entity)
 end
 
 entitylib.isVulnerable = function(entity)
-	return entity.Health > 0 and not entity.Character.FindFirstChildWhichIsA(entity.Character, 'ForceField')
+	local char = entity and entity.Character
+	if not char or not char.Parent or type(entity.Health) ~= 'number' or entity.Health <= 0 then return false end
+	return not char.FindFirstChildWhichIsA(char, 'ForceField')
 end
 
 entitylib.getEntityColor = function(entity)
@@ -111,7 +113,7 @@ entitylib.Wallcheck = function(origin, position, ignoreobject, entity)
 	if typeof(ignoreobject) ~= 'Instance' then
 		local ignorelist = {gameCamera, lplr.Character}
 		for _, ent in entitylib.List do
-			if ent.Targetable then
+			if ent.Targetable and ent.Character and ent.Character.Parent then
 				table.insert(ignorelist, ent.Character)
 			end
 		end
@@ -130,7 +132,7 @@ entitylib.Wallcheck = function(origin, position, ignoreobject, entity)
 		return nil
 	end
 	local points = {}
-	if type(entity) == 'table' and entity.Character then
+	if type(entity) == 'table' and entity.Character and entity.Character.Parent then
 		local head = entity.Head or entity.Character:FindFirstChild('Head')
 		if head and head.Parent then
 			table.insert(points, head.Position)
@@ -164,7 +166,9 @@ entitylib.EntityMouse = function(entitysettings)
 			if not entitysettings.Players and entity.Player then continue end
 			if not entitysettings.NPCs and entity.NPC then continue end
 			if not entity.Targetable then continue end
-			local position, vis = gameCamera.WorldToViewportPoint(gameCamera, entity[entitysettings.Part].Position)
+			local entityPart = entity[entitysettings.Part]
+			if not entityPart or not entityPart.Parent then continue end
+			local position, vis = gameCamera.WorldToViewportPoint(gameCamera, entityPart.Position)
 			if not vis then continue end
 			local mag = (mouseLocation - Vector2.new(position.x, position.y)).Magnitude
 			if mag > entitysettings.Range then continue end
@@ -196,12 +200,25 @@ end
 
 entitylib.EntityPosition = function(entitysettings)
 	if entitylib.isAlive then
-		local localPosition, sortingTable = entitysettings.Origin or entitylib.character.HumanoidRootPart.Position, {}
+		local localPosition
+		if entitysettings.Origin then
+			localPosition = entitysettings.Origin
+		else
+			local localRoot = entitylib.character and entitylib.character.HumanoidRootPart
+			if not localRoot or not localRoot.Parent then
+				table.clear(entitysettings)
+				return {}
+			end
+			localPosition = localRoot.Position
+		end
+		local sortingTable = {}
 		for _, entity in entitylib.List do
 			if not entitysettings.Players and entity.Player then continue end
 			if not entitysettings.NPCs and entity.NPC then continue end
 			if not entity.Targetable then continue end
-			local mag = (entity[entitysettings.Part].Position - localPosition).Magnitude
+			local entityPart = entity[entitysettings.Part]
+			if not entityPart or not entityPart.Parent then continue end
+			local mag = (entityPart.Position - localPosition).Magnitude
 			if mag > entitysettings.Range then continue end
 			if entitylib.isVulnerable(entity) then
 				table.insert(sortingTable, {
@@ -231,12 +248,25 @@ end
 entitylib.AllPosition = function(entitysettings)
 	local returned = {}
 	if entitylib.isAlive then
-		local localPosition, sortingTable = entitysettings.Origin or entitylib.character.HumanoidRootPart.Position, {}
+		local localPosition
+		if entitysettings.Origin then
+			localPosition = entitysettings.Origin
+		else
+			local localRoot = entitylib.character and entitylib.character.HumanoidRootPart
+			if not localRoot or not localRoot.Parent then
+				table.clear(entitysettings)
+				return returned
+			end
+			localPosition = localRoot.Position
+		end
+		local sortingTable = {}
 		for _, entity in entitylib.List do
 			if not entitysettings.Players and entity.Player then continue end
 			if not entitysettings.NPCs and entity.NPC then continue end
 			if not entity.Targetable then continue end
-			local mag = (entity[entitysettings.Part].Position - localPosition).Magnitude
+			local entityPart = entity[entitysettings.Part]
+			if not entityPart or not entityPart.Parent then continue end
+			local mag = (entityPart.Position - localPosition).Magnitude
 			if mag > entitysettings.Range then continue end
 			if entitylib.isVulnerable(entity) then
 				table.insert(sortingTable, {
