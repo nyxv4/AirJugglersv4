@@ -8726,8 +8726,9 @@ run(function()
 
 		if kaLastSrv > 0 then
 			kaLastSrv = kaLastSrv + kaPeriod
-			-- Let the schedule catch up after jitter; only resync on real stalls.
-			if srvNow - kaLastSrv > 0.5 then kaLastSrv = srvNow end
+			-- Let the schedule catch up after jitter, but resync before it can
+			-- burst-fire several periods' worth of hits in consecutive frames.
+			if srvNow - kaLastSrv > math.max(kaPeriod * 1.5, 0.08) then kaLastSrv = srvNow end
 		else
 			kaLastSrv = srvNow
 		end
@@ -9611,7 +9612,7 @@ run(function()
 
 		local srvNow = workspace:GetServerTimeNow()
 		GrandLastSrv = GrandLastSrv + GrandFire.Period
-		if srvNow - GrandLastSrv > 0.5 then
+		if srvNow - GrandLastSrv > math.max(GrandFire.Period * 1.5, 0.08) then
 			GrandLastSrv = srvNow
 		end
 		return true
