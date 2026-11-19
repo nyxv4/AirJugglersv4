@@ -1404,17 +1404,43 @@ run(function()
 	end
 
 	task.spawn(function()
+		local predictConsumers = {
+			AimAssist = true, SilentAim = true, ProjectileAimbot = true, ['Projectile Hitbox'] = true,
+			ProjectileAura = true, Killaura = true, KillauraOLD = true, GrandKillaura = true,
+			CatKillAura = true, HitBoxes = true, ChestSteal = true, AutoPearl = true,
+			AutoLasso = true, AutoWhisper = true, AutoAdetunde = true,
+		}
+		local predictActive, predictChecked = false, 0
 		repeat
-			local here = entitylib.isAlive and entitylib.character.RootPart.Position or nil
-			for _, v in entitylib.List do
-				local root = v.RootPart
-				if here and root and root.Parent and v.Targetable then
-					local vel = root.AssemblyLinearVelocity
-					local air = (v.Humanoid and v.Humanoid.FloorMaterial == Enum.Material.Air) or math.abs(vel.Y) > 0.01
-					pcall(prediction.Observe, root, root.Position, vel, air, workspace.Gravity, here, v.HipHeight, v.Jumping and 42.6 or nil)
+			local t = tick()
+			if t - predictChecked > 0.5 then
+				predictChecked = t
+				predictActive = false
+				local mods = vape.Modules
+				if mods then
+					for name in pairs(predictConsumers) do
+						local m = mods[name]
+						if m and m.Enabled then
+							predictActive = true
+							break
+						end
+					end
 				end
 			end
-			task.wait(0.025)
+			if predictActive then
+				local here = entitylib.isAlive and entitylib.character.RootPart.Position or nil
+				for _, v in entitylib.List do
+					local root = v.RootPart
+					if here and root and root.Parent and v.Targetable then
+						local vel = root.AssemblyLinearVelocity
+						local air = (v.Humanoid and v.Humanoid.FloorMaterial == Enum.Material.Air) or math.abs(vel.Y) > 0.01
+						pcall(prediction.Observe, root, root.Position, vel, air, workspace.Gravity, here, v.HipHeight, v.Jumping and 42.6 or nil)
+					end
+				end
+				task.wait(0.025)
+			else
+				task.wait(0.5)
+			end
 		until vape.Loaded == nil
 	end)
 
