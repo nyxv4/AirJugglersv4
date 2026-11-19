@@ -8639,7 +8639,7 @@ run(function()
 	local function attemptFire(forcedTarget, rangeLimit, frameDelta, attackData)
 		-- A sword hit while a bow/other projectile is in hand cancels the shot; the player
 		-- picked that item on purpose, so the aura stands down until they switch back.
-		if handIsProjectile() then return false end
+		if handIsProjectile() and tick() - (store.lastToolUpdate or 0) > 0.5 then return false end
 		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
 
 		-- A sword hit sent right behind a bolt would cancel it; the bow stays raised until the
@@ -8723,8 +8723,8 @@ run(function()
 
 		if kaLastSrv > 0 then
 			kaLastSrv = kaLastSrv + kaPeriod
-			-- Preserve at most one frame of lateness; resync after stalls or pauses.
-			if srvNow - kaLastSrv > math.min(frameDelta or 0, kaPeriod * 0.5) then kaLastSrv = srvNow end
+			-- Let the schedule catch up after jitter; only resync on real stalls.
+			if srvNow - kaLastSrv > 0.5 then kaLastSrv = srvNow end
 		else
 			kaLastSrv = srvNow
 		end
@@ -9115,7 +9115,7 @@ run(function()
 	AttackRange = Killaura:CreateSlider({
 		Name = 'Attack range',
 			Min = 1,
-			Max = 40,
+			Max = 22,
 			Default = 22,
 			Suffix = function(val) return val == 1 and 'stud' or 'studs' end
 	})
@@ -9608,7 +9608,7 @@ run(function()
 
 		local srvNow = workspace:GetServerTimeNow()
 		GrandLastSrv = GrandLastSrv + GrandFire.Period
-		if GrandLastSrv < srvNow then
+		if srvNow - GrandLastSrv > 0.5 then
 			GrandLastSrv = srvNow
 		end
 		return true
@@ -9930,7 +9930,7 @@ run(function()
 	GrandAttackRange = GrandKillaura:CreateSlider({
 		Name = 'Attack range',
 		Min = 1,
-		Max = 40,
+		Max = 24,
 		Default = 24,
 		Suffix = function(val) return val == 1 and 'stud' or 'studs' end
 	})
@@ -11088,7 +11088,7 @@ run(function()
 							Sword = Limit.Enabled and store.hand or store.tools.sword
 							if not Sword or not Sword.tool then
 								Sword = nil
-							elseif handIsProjectile() then
+							elseif handIsProjectile() and tick() - (store.lastToolUpdate or 0) > 0.5 then
 								-- the player picked a bow/projectile on purpose; don't yank the sword back
 								Sword = nil
 							elseif Limit.Enabled and (store.hand.toolType ~= "sword" or bedwars.DaoController.chargingMaid) then
@@ -11553,8 +11553,8 @@ run(function()
 	AttackRange = Killaura:CreateSlider({
 		Name = "Attack range",
 		Min = 1,
-		Max = 40,
-		Default = 18.1,
+		Max = 22,
+		Default = 22,
 		Suffix = function(Val: number)
 			return Val == 1 and "stud" or "studs"
 		end,
