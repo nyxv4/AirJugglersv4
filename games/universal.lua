@@ -8066,3 +8066,102 @@ run(function()
     })
 end)
 
+
+run(function()
+	local FrameBuffer
+	local Latency
+	local Rate
+
+	local getFlag = (type(getfflag) == 'function' and getfflag)
+		or (type(getFFlag) == 'function' and getFFlag)
+		or (type(getgenv) == 'function' and getgenv().getfflag)
+		or (type(getgenv) == 'function' and getgenv().getFFlag)
+
+	local flagNames = {
+		'DFIntDebugDefaultTargetWorldStepsPerFrame',
+		'DFIntMaxMissedWorldStepsRemembered',
+		'DFIntWorldStepsOffsetAdjustRate',
+		'DFIntDebugSendDistInSteps',
+		'DFIntWorldStepMax',
+		'DFIntWarpFactor'
+	}
+	local defaults = {}
+
+	local function captureDefaults()
+		if type(getFlag) ~= 'function' then return end
+		for _, name in flagNames do
+			local ok, val = pcall(getFlag, name)
+			if ok and val ~= nil then
+				defaults[name] = tostring(val)
+			end
+		end
+	end
+	captureDefaults()
+
+	local function restoreFFlags()
+		if type(setfflag) ~= 'function' then return end
+		for _, name in flagNames do
+			local val = defaults[name]
+			if val then
+				pcall(setfflag, name, val)
+			end
+		end
+	end
+
+	local function applyFFlags(latencyMs, rate)
+		rate = math.max(tonumber(rate) or 60, 1)
+		local latency = tonumber(latencyMs) or 0
+		if latency <= 1 then
+			latency = 1.5
+		end
+
+		local OG = -2147483648
+		local NEW = OG * (latency / 1000)
+		local NEW2 = NEW * -1
+		local str = string.format('%.0f', NEW)
+		local str2 = string.format('%.0f', NEW2)
+
+		pcall(setfflag, 'DFIntDebugDefaultTargetWorldStepsPerFrame', str)
+		pcall(setfflag, 'DFIntMaxMissedWorldStepsRemembered', str)
+		pcall(setfflag, 'DFIntWorldStepsOffsetAdjustRate', str2)
+		pcall(setfflag, 'DFIntDebugSendDistInSteps', str)
+		pcall(setfflag, 'DFIntWorldStepMax', str)
+		pcall(setfflag, 'DFIntWarpFactor', str2)
+	end
+
+	FrameBuffer = vape.Categories.Blatant:CreateModule({
+		Name = 'FrameBuffer',
+		Function = function(callback)
+			if callback then
+				if type(setfflag) ~= 'function' then
+					warn('[FrameBuffer] setfflag is not supported on this executor')
+					return
+				end
+				repeat
+					applyFFlags(Latency.Value, Rate.Value)
+					task.wait(1 / math.max(tonumber(Rate.Value) or 60, 1))
+				until not FrameBuffer.Enabled
+
+				restoreFFlags()
+			end
+		end,
+		Tooltip = 'Simulates extra frame latency'
+	})
+
+	Latency = FrameBuffer:CreateSlider({
+		Name = 'Latency',
+		Min = 0,
+		Max = 1000,
+		Default = 250,
+		Suffix = 'ms'
+	})
+
+	Rate = FrameBuffer:CreateSlider({
+		Name = 'Rate',
+		Min = 1,
+		Max = 360,
+		Default = 60,
+		Suffix = 'hz'
+	})
+	vape:Clean(restoreFFlags)
+end)
