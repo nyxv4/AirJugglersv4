@@ -8138,7 +8138,7 @@ run(function()
 		Function = function(callback)
 			if callback then
 				if type(setFlag) ~= 'function' then
-					warn('[FrameBuffer] setfflag is not supported on this executor')
+					pcall(warn or print, '[FrameBuffer] setfflag is not supported on this executor')
 					return
 				end
 				if setthreadidentity then
@@ -8152,7 +8152,7 @@ run(function()
 						local ok, val = pcall(getFlag, 'DFIntWorldStepMax')
 						local applied = tostring(string.format('%.0f', -2147483648 * ((tonumber(Latency.Value) or 0) <= 1 and 1.5 or tonumber(Latency.Value)) / 1000)))
 						if not (ok and val ~= nil and tostring(val) == applied) then
-							warn('[FrameBuffer] executor blocked DFInt flag writes - module may not work')
+							pcall(warn or print, '[FrameBuffer] executor blocked DFInt flag writes - module may not work')
 						end
 					end
 					task.wait(1 / math.max(tonumber(Rate.Value) or 60, 1))
