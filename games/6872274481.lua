@@ -4477,6 +4477,7 @@ run(function()
 	local SAFOVCircle
 	local RandomHeadPercent
 	local RandomTorsoPercent
+	local HeadshotChance
 	local OtherProjectiles
 	local Blacklist
 	local AutoCharge
@@ -4673,6 +4674,11 @@ run(function()
 
 		local targetBodyPart = getTargetPart(plr)
 		if not targetBodyPart then return end
+
+		local head = plr.Character and plr.Character:FindFirstChild('Head')
+		if head and HeadshotChance and math.random(1, 100) <= HeadshotChance.Value then
+			targetBodyPart = head
+		end
 
 		local dist = (targetBodyPart.Position - origin).Magnitude
 		if dist > Range.Value then return end
@@ -4892,6 +4898,15 @@ run(function()
 		Name = 'Sort Method',
 		List = getSortList({'Distance', 'Damage', 'Cursor'}),
 		Default = 'Cursor',
+	})
+
+	HeadshotChance = SilentAim:CreateSlider({
+		Name = 'Headshot Chance',
+		Min = 1,
+		Max = 100,
+		Default = 100,
+		Suffix = '%',
+		Tooltip = 'Chance each shot aims at the head. 100% = every shot is a headshot.'
 	})
 
 	Range = SilentAim:CreateSlider({
@@ -6542,7 +6557,7 @@ run(function()
 						Ent.RootPart.Position, Ent.RootPart,
 						nil, true
 					)
-					for _ = 1, 2 do
+					for _ = 1, 3 do
 						if not calc or not flight then break end
 						local Spawn = prediction.GetSpawnPosition(OffsetPosition, calc, RelX, RelY, RelZ)
 						local corrected, _, correctedTime = prediction.SolveTrajectory(
