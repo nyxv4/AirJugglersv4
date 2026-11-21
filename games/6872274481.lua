@@ -30796,6 +30796,79 @@ run(function()
 		Darker = true,
 		Visible = false,
 	})
+
+	-- Auto Lucia: fires the pinata deposit remote for every pinata you own, from
+	-- any distance. The client never range-checks the remote, so no position math.
+	local AutoLucia
+	local luciaPinatas = {}
+
+	local function luciaPinataOwnerId(part)
+		local id = part:GetAttribute('PlacedByUserId') or part:GetAttribute('PlacerId')
+		if not id then
+			local parent = part.Parent
+			id = parent and (parent:GetAttribute('PlacedByUserId') or parent:GetAttribute('PlacerId'))
+		end
+		return id
+	end
+
+	local function luciaTrack(part)
+		if part and part:IsA('BasePart') and part.Name == 'pinata' and luciaPinataOwnerId(part) == lplr.UserId then
+			luciaPinatas[part] = true
+		end
+	end
+
+	local function luciaScan()
+		for _, obj in workspace:GetDescendants() do
+			luciaTrack(obj)
+		end
+	end
+
+	AutoLucia = vape.Categories.Kits:CreateModule({
+		Name = 'AutoLucia',
+		Function = function(callback)
+			if callback then
+				table.clear(luciaPinatas)
+				luciaScan()
+				AutoLucia:Clean(workspace.DescendantAdded:Connect(function(obj)
+					if AutoLucia.Enabled then luciaTrack(obj) end
+				end))
+				AutoLucia:Clean(task.spawn(function()
+					local remote
+					while AutoLucia.Enabled do
+						for part in pairs(luciaPinatas) do
+							if not part.Parent or luciaPinataOwnerId(part) ~= lplr.UserId then
+								luciaPinatas[part] = nil
+							end
+						end
+						if next(luciaPinatas) then
+							if not remote then
+								local name = (getgenv().remotes or remotes).DepositPinata
+								if type(name) == 'string' and name ~= '' then
+									local ok, res = pcall(function() return bedwars.Client:Get(name) end)
+									if ok and res then remote = res end
+								end
+							end
+							if remote then
+								for part in pairs(luciaPinatas) do
+									pcall(function()
+										if remote.SendToServer then
+											remote:SendToServer({pinata = part})
+										elseif remote.CallServerAsync then
+											remote:CallServerAsync({pinata = part})
+										end
+									end)
+								end
+							end
+						end
+						task.wait(0.12)
+					end
+				end))
+			else
+				table.clear(luciaPinatas)
+			end
+		end,
+		Tooltip = 'auto fills your pinata with candy from any distance'
+	})
 	local DrillToggle, DrillNotify, DrillESPToggle, DrillTeamCheck
 	local drillFolder = Instance.new('Folder')
 	drillFolder.Parent = vape.gui
