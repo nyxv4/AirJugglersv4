@@ -30797,87 +30797,6 @@ run(function()
 		Visible = false,
 	})
 
-	-- Auto Lucia: fires the pinata deposit remote for every pinata you own, from
-	-- any distance. The client never range-checks the remote, so no position math.
-	local AutoLucia
-	local luciaPinatas = {}
-	local luciaRemote
-
-	local function luciaResolveRemote()
-		if luciaRemote then return luciaRemote end
-		local name = (getgenv().remotes or remotes).DepositPinata
-		if type(name) ~= 'string' or name == '' then return nil end
-		local ok, res = pcall(function() return bedwars.Client:Get(name) end)
-		if ok and res then luciaRemote = res end
-		return luciaRemote
-	end
-
-	local function luciaFireAll()
-		local remote = luciaResolveRemote()
-		if not remote then return end
-		for part in pairs(luciaPinatas) do
-			pcall(function()
-				if remote.SendToServer then
-					remote:SendToServer({pinata = part})
-				elseif remote.CallServerAsync then
-					remote:CallServerAsync({pinata = part})
-				end
-			end)
-		end
-	end
-
-	local function luciaPinataOwnerId(part)
-		local id = part:GetAttribute('PlacedByUserId') or part:GetAttribute('PlacerId')
-		if not id then
-			local parent = part.Parent
-			id = parent and (parent:GetAttribute('PlacedByUserId') or parent:GetAttribute('PlacerId'))
-		end
-		return id
-	end
-
-	local function luciaTrack(part)
-		if part and part:IsA('BasePart') and part.Name == 'pinata' and luciaPinataOwnerId(part) == lplr.UserId then
-			if not luciaPinatas[part] then
-				luciaPinatas[part] = true
-				if AutoLucia and AutoLucia.Enabled then luciaFireAll() end
-			end
-		end
-	end
-
-	local function luciaScan()
-		for _, obj in workspace:GetDescendants() do
-			luciaTrack(obj)
-		end
-	end
-
-	AutoLucia = vape.Categories.Kits:CreateModule({
-		Name = 'AutoLucia',
-		Function = function(callback)
-			if callback then
-				table.clear(luciaPinatas)
-				luciaScan()
-				AutoLucia:Clean(workspace.DescendantAdded:Connect(function(obj)
-					if AutoLucia.Enabled then luciaTrack(obj) end
-				end))
-				AutoLucia:Clean(task.spawn(function()
-					while AutoLucia.Enabled do
-						for part in pairs(luciaPinatas) do
-							if not part.Parent or luciaPinataOwnerId(part) ~= lplr.UserId then
-								luciaPinatas[part] = nil
-							end
-						end
-						if next(luciaPinatas) then
-							luciaFireAll()
-						end
-						task.wait(0.08)
-					end
-				end))
-			else
-				table.clear(luciaPinatas)
-			end
-		end,
-		Tooltip = 'auto fills your pinata with candy from any distance'
-	})
 	local DrillToggle, DrillNotify, DrillESPToggle, DrillTeamCheck
 	local drillFolder = Instance.new('Folder')
 	drillFolder.Parent = vape.gui
@@ -35631,8 +35550,65 @@ run(function()
 				end
 				task.wait(0.1)
 			until not Session.Active
+		end,
+
+	pinata = function(Session)
+		local pinatas = {}
+		local remote
+		local function ownerId(part)
+			local id = part:GetAttribute('PlacedByUserId') or part:GetAttribute('PlacerId')
+			if not id then
+				local parent = part.Parent
+				id = parent and (parent:GetAttribute('PlacedByUserId') or parent:GetAttribute('PlacerId'))
+			end
+			return id
 		end
-	}
+		local function resolveRemote()
+			if remote then return remote end
+			local name = (getgenv().remotes or remotes).DepositPinata
+			if type(name) ~= 'string' or name == '' then return nil end
+			local ok, res = pcall(function() return bedwars.Client:Get(name) end)
+			if ok and res then remote = res end
+			return remote
+		end
+		local function fireAll()
+			local r = resolveRemote()
+			if not r then return end
+			for part in pairs(pinatas) do
+				pcall(function()
+					if r.SendToServer then
+						r:SendToServer({pinata = part})
+					elseif r.CallServerAsync then
+						r:CallServerAsync({pinata = part})
+					end
+				end)
+			end
+		end
+		local function track(part)
+			if part and part:IsA('BasePart') and part.Name == 'pinata' and ownerId(part) == lplr.UserId then
+				pinatas[part] = true
+				if Session.Active then fireAll() end
+			end
+		end
+		for _, obj in workspace:GetDescendants() do
+			track(obj)
+		end
+		Session:Clean(workspace.DescendantAdded:Connect(function(obj)
+			if Session.Active then track(obj) end
+		end))
+		while Session.Active do
+			for part in pairs(pinatas) do
+				if not part.Parent or ownerId(part) ~= lplr.UserId then
+					pinatas[part] = nil
+				end
+			end
+			if next(pinatas) then
+				fireAll()
+			end
+			task.wait(0.08)
+		end
+	end
+}
 
 	local Tooltips = {
 		jellyfish = 'legit = shocks enemies 14 studs from ur jelly, off = 18 studs',
@@ -35658,7 +35634,8 @@ run(function()
 		jailor = 'legit = grabs souls within 14 studs, off = 40 studs',
 		grim_reaper = 'legit = eats souls within 14 studs, off = 150 studs',
 		gun_blade = 'legit = shoots enemies within 10 studs, off = 40 studs',
-		sheep_herder = 'legit = tames sheep within 14 studs, off = any distance'
+		sheep_herder = 'legit = tames sheep within 14 studs, off = any distance',
+		pinata = 'fills your pinata with candy from any distance'
 	}
 
 	local function StopKits()
