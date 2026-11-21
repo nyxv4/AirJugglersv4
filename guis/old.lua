@@ -221,7 +221,7 @@ local function downloadFile(path, func)
 	if not isfile(path) then
 		createDownloader(path)
 		local suc, res = pcall(function()
-			return game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/'..readfile('newvape/profiles/commit.txt')..'/'..select(1, path:gsub('newvape/', '')), true)
+			return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..readfile('newvape/profiles/commit.txt')..'/'..select(1, path:gsub('newvape/', '')), true)
 		end)
 		if not suc or res == '404: Not Found' then
 			error(res)
@@ -1781,7 +1781,7 @@ function mainapi:CreateBar()
 	bar.BorderSizePixel = 0
 	bar.Parent = clickgui
 	local logo = Instance.new('ImageLabel')
-	logo.Size = UDim2.fromOffset(92, 25)
+	logo.Size = UDim2.fromOffset(104, 25)
 	logo.Position = UDim2.fromOffset(11, 8)
 	logo.BackgroundTransparency = 1
 	logo.Image = getcustomasset('newvape/assets/old/barlogo.png')
@@ -3729,7 +3729,7 @@ topbar:CreateDropdown({
 			if shared.VapeDeveloper then
 				loadstring(readfile('newvape/loader.lua'), 'loader')()
 			else
-				loadstring(game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/'..readfile('newvape/profiles/commit.txt')..'/loader.lua', true))()
+				loadstring(game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..readfile('newvape/profiles/commit.txt')..'/loader.lua', true))()
 			end
 		end
 	end,
@@ -3767,7 +3767,7 @@ topbar:CreateButton({
 		if shared.VapeDeveloper then
 			loadstring(readfile('newvape/loader.lua'), 'loader')()
 		else
-			loadstring(game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/'..readfile('newvape/profiles/commit.txt')..'/loader.lua', true))()
+			loadstring(game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..readfile('newvape/profiles/commit.txt')..'/loader.lua', true))()
 		end
 	end,
 	Tooltip = 'This will set your profile to the default settings of Vape'
@@ -3831,7 +3831,7 @@ topbar:CreateButton({
 		if shared.VapeDeveloper then
 			loadstring(readfile('newvape/loader.lua'), 'loader')()
 		else
-			loadstring(game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/'..readfile('newvape/profiles/commit.txt')..'/loader.lua', true))()
+			loadstring(game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..readfile('newvape/profiles/commit.txt')..'/loader.lua', true))()
 		end
 	end,
 	Tooltip = 'Reloads vape for debugging purposes'
@@ -4086,7 +4086,7 @@ local textguirender = textgui:CreateToggle({
 local VapeLabels = {}
 local VapeLogo = Instance.new('ImageLabel')
 VapeLogo.Name = 'Logo'
-VapeLogo.Size = UDim2.fromOffset(96, 26)
+VapeLogo.Size = UDim2.fromOffset(112, 26)
 VapeLogo.Position = UDim2.new(1, -142, 0, 3)
 VapeLogo.BackgroundTransparency = 1
 VapeLogo.BorderSizePixel = 0
@@ -4149,7 +4149,7 @@ function mainapi:UpdateTextGUI(afterload)
 	if textgui.Button.Enabled then
 		local right = textgui.Children.AbsolutePosition.X > (gui.AbsoluteSize.X / 2)
 		VapeLogo.Visible = textguiwatermark.Enabled
-		VapeLogo.Position = right and UDim2.new(1 / VapeTextScale.Scale, -141, 0, 4) or UDim2.fromOffset(5, 4)
+		VapeLogo.Position = right and UDim2.new(1 / VapeTextScale.Scale, -157, 0, 4) or UDim2.fromOffset(5, 4)
 		VapeLogoShadow.Visible = textguishadow.Enabled
 		VapeLabelSorter.HorizontalAlignment = right and Enum.HorizontalAlignment.Right or Enum.HorizontalAlignment.Left
 		VapeLabelHolder.Size = UDim2.fromScale(1 / VapeTextScale.Scale, 1)

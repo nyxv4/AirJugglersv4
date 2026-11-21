@@ -18,7 +18,7 @@ local function downloadFile(path, func)
 			if type(commit) ~= 'string' or commit == '' then
 				commit = 'main'
 			end
-			return game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/'..commit..'/'..select(1, path:gsub('^NYX/', '')), true)
+			return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..commit..'/'..select(1, path:gsub('^NYX/', '')), true)
 		end)
 		if not suc or type(res) ~= 'string' or res == '' or res == '404: Not Found' then
 			error(res)

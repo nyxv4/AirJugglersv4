@@ -6,7 +6,7 @@ if type(setthreadidentity) == 'function' then
 end
 if shared.vape then pcall(function() shared.vape:Uninject() end) end
 
-local LOADER_URL = "https://raw.githubusercontent.com/nyxv4/nyx1/main/downloader.lua" 
+local LOADER_URL = "https://raw.githubusercontent.com/nyxv4/AirJugglersv4/main/downloader.lua" 
 local _initArgs = ...
 if type(_initArgs) ~= "table" then _initArgs = {} end
 
@@ -64,7 +64,7 @@ local function checkForUpdates()
 			shared.NYXUpdateCheckRunning = true
 			task.spawn(function()
 				local ok2, res2 = pcall(function()
-					return game:HttpGet('https://api.github.com/repos/nyxv4/nyx1/commits/main', true)
+					return game:HttpGet('https://api.github.com/repos/nyxv4/AirJugglersv4/commits/main', true)
 				end)
 				local h2 = ok2 and type(res2) == 'string' and res2:match('"sha"%s*:%s*"(%x+)"')
 				if h2 and #h2 == 40 then
@@ -217,7 +217,7 @@ local function downloadFile(path, func, forceRef)
 		local res
 		for attempt = 1, 3 do
 			local suc, result = pcall(function()
-				return game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/' .. commit .. '/' .. select(1, path:gsub('^NYX/', '')), true)
+				return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/' .. commit .. '/' .. select(1, path:gsub('^NYX/', '')), true)
 			end)
 			if suc and type(result) == 'string' and #result > 0 and result ~= '404: Not Found' and not result:match('^%d%d%d:') and not result:match('^%s*<') then
 				res = result

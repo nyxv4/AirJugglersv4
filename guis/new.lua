@@ -305,7 +305,7 @@ end
 local function downloadFile(path, func)
 	if not isfile(path) then
 		local suc, res = pcall(function()
-			return game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/'..readfile('NYX/profiles/commit.txt')..'/'..select(1, path:gsub('NYX/', '')), true)
+			return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..readfile('NYX/profiles/commit.txt')..'/'..select(1, path:gsub('NYX/', '')), true)
 		end)
 		if not suc or res == '404: Not Found' then
 			error(res)
@@ -2621,7 +2621,7 @@ function mainapi:CreateGUI()
 	makeDraggable(window)
 	local logo = Instance.new('ImageLabel')
 	logo.Name = 'VapeLogo'
-	logo.Size = UDim2.fromOffset(62, 18)
+	logo.Size = UDim2.fromOffset(96, 18)
 	logo.Position = UDim2.fromOffset(11, 10)
 	logo.BackgroundTransparency = 1
 	logo.Image = getcustomasset('NYX/assets/new/guivape.png')
@@ -6080,7 +6080,7 @@ general:CreateButton({
 		if shared.VapeDeveloper then
 			loadstring(readfile('NYX/downloader.lua'), 'downloader')()
 		else
-			loadstring(game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/'..readfile('NYX/profiles/commit.txt')..'/downloader.lua', true))()
+			loadstring(game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..readfile('NYX/profiles/commit.txt')..'/downloader.lua', true))()
 		end
 	end,
 	Tooltip = 'This will set your profile to the default settings of Vape'
@@ -6099,7 +6099,7 @@ general:CreateButton({
 		if shared.VapeDeveloper then
 			loadstring(readfile('NYX/downloader.lua'), 'downloader')()
 		else
-			loadstring(game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/'..readfile('NYX/profiles/commit.txt')..'/downloader.lua', true))()
+			loadstring(game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..readfile('NYX/profiles/commit.txt')..'/downloader.lua', true))()
 		end
 	end,
 	Tooltip = 'Reloads vape for debugging purposes'
@@ -6207,7 +6207,7 @@ guipane:CreateDropdown({
 			if shared.VapeDeveloper then
 				loadstring(readfile('NYX/downloader.lua'), 'downloader')()
 			else
-				loadstring(game:HttpGet('https://raw.githubusercontent.com/nyxv4/nyx1/'..readfile('NYX/profiles/commit.txt')..'/downloader.lua', true))()
+				loadstring(game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..readfile('NYX/profiles/commit.txt')..'/downloader.lua', true))()
 			end
 		end
 	end,
@@ -6521,7 +6521,7 @@ textguicolorcustom = textgui:CreateColorSlider({
 local VapeLabels = {}
 local VapeLogo = Instance.new('ImageLabel')
 VapeLogo.Name = 'Logo'
-VapeLogo.Size = UDim2.fromOffset(80, 21)
+VapeLogo.Size = UDim2.fromOffset(112, 21)
 VapeLogo.Position = UDim2.new(1, -142, 0, 3)
 VapeLogo.BackgroundTransparency = 1
 VapeLogo.BorderSizePixel = 0
@@ -6876,7 +6876,7 @@ function mainapi:UpdateTextGUI(afterload)
 	if textgui.Button.Enabled then
 		local right = textgui.Children.AbsolutePosition.X > (gui.AbsoluteSize.X / 2)
 		VapeLogo.Visible = textguiwatermark.Enabled
-		VapeLogo.Position = right and UDim2.new(1 / VapeTextScale.Scale, -113, 0, 6) or UDim2.fromOffset(0, 6)
+		VapeLogo.Position = right and UDim2.new(1 / VapeTextScale.Scale, -145, 0, 6) or UDim2.fromOffset(0, 6)
 		VapeLogoShadow.Visible = textguishadow.Enabled
 		VapeLabelCustom.Text = textguibox.Value
 		VapeLabelCustom.FontFace = textguifontcustom.Value
