@@ -35554,10 +35554,7 @@ run(function()
 
 	pinata = function(Session)
 		local pinatas = {}
-		local hooked = {}
-		local learnedRemote, learnedMethod, learnedArgs
-		local firing = false
-
+		local remote
 		local function ownerId(part)
 			local id = part:GetAttribute('PlacedByUserId') or part:GetAttribute('PlacerId')
 			if not id then
@@ -35566,99 +35563,26 @@ run(function()
 			end
 			return id
 		end
-
-		local function candidateNames()
-			local r = getgenv().remotes or remotes
-			local names, seen = {}, {}
-			for _, n in ipairs({r.DepositPinata, 'DepositPinata', r.DepositCoins, 'DepositCoins'}) do
-				if type(n) == 'string' and n ~= '' and not seen[n] then
-					seen[n] = true
-					table.insert(names, n)
-				end
-			end
-			return names
+		local function resolveRemote()
+			if remote then return remote end
+			local name = (getgenv().remotes or remotes).DepositPinata
+			if type(name) ~= 'string' or name == '' then return nil end
+			local ok, res = pcall(function() return bedwars.Client:Get(name) end)
+			if ok and res then remote = res end
+			return remote
 		end
-
-		local function resolveAny()
-			for _, name in candidateNames() do
-				local ok, res = pcall(function() return bedwars.Client:Get(name) end)
-				if ok and res then return res end
-			end
-			return nil
-		end
-
-		local function isPinataInst(v)
-			return typeof(v) == 'Instance' and v:IsA('BasePart') and v.Name == 'pinata'
-		end
-
-		local function subst(v, part)
-			if isPinataInst(v) then return part end
-			if type(v) == 'table' then
-				local c = {}
-				for k, x in v do c[k] = subst(x, part) end
-				return c
-			end
-			return v
-		end
-
-		local function sendOn(r, method, args)
-			local f = r[method]
-			if type(f) ~= 'function' then return false end
-			pcall(function() f(r, table.unpack(args)) end)
-			return true
-		end
-
-		local function hookRemote(r)
-			for _, m in ipairs({'SendToServer', 'CallServerAsync', 'FireServer', 'InvokeServer'}) do
-				local key = tostring(r) .. ':' .. m
-				local f = r[m]
-				if type(f) == 'function' and not hooked[key] then
-					hooked[key] = true
-					pcall(hookfunction, f, function(self, ...)
-						if not firing and not learnedArgs then
-							learnedRemote, learnedMethod, learnedArgs = r, m, {...}
-							pcall(function()
-								vape:CreateNotification('AutoKit', 'Lucia deposit learned - auto pinata fill active', 4)
-							end)
-						end
-						return f(self, ...)
-					end)
-				end
-			end
-		end
-
-		local shapeIndex = 0
-		local function fallbackArgs(part)
-			shapeIndex = (shapeIndex % 3) + 1
-			if shapeIndex == 1 then return {{pinata = part}} end
-			if shapeIndex == 2 then return {part} end
-			return {{pinata = part.Parent or part}}
-		end
-
 		local function fireAll()
-			firing = true
+			local r = resolveRemote()
+			if not r then return end
 			for part in pairs(pinatas) do
 				pcall(function()
-					if learnedRemote and learnedMethod and learnedArgs then
-						local args = {}
-						for i, a in learnedArgs do args[i] = subst(a, part) end
-						sendOn(learnedRemote, learnedMethod, args)
-					else
-						for _, name in candidateNames() do
-							local ok, r = pcall(function() return bedwars.Client:Get(name) end)
-							if ok and r then
-								hookRemote(r)
-								local sent = false
-								for _, m in ipairs({'SendToServer', 'CallServerAsync'}) do
-									if sendOn(r, m, fallbackArgs(part)) then sent = true break end
-								end
-								if sent then break end
-							end
-						end
+					if r.SendToServer then
+						r:SendToServer({pinata = part})
+					elseif r.CallServerAsync then
+						r:CallServerAsync({pinata = part})
 					end
 				end)
 			end
-			firing = false
 		end
 		local function track(part)
 			if part and part:IsA('BasePart') and part.Name == 'pinata' and ownerId(part) == lplr.UserId then
