@@ -117,28 +117,26 @@ if not shared.VapeDeveloper then
 	local oldCommit = readfile('NYX/profiles/commit.txt')
 	commit = pinnedCommit or oldCommit
 	if not pinnedCommit then
+		-- Use the last known commit so inject never blocks on the API; the
+		-- freshness check runs in the background for the next inject.
 		local latest = isfile('NYX/profiles/latest.txt') and readfile('NYX/profiles/latest.txt') or ''
-		local lastCheck = tonumber(isfile('NYX/profiles/lastcheck.txt') and readfile('NYX/profiles/lastcheck.txt') or '') or 0
-		local now = unixTime()
-		local h
-		if now - lastCheck < UPDATE_CHECK_INTERVAL and #latest == 40 and latest:match('^%x+$') then
-			h = latest
-		else
-			local ok, res = pcall(function()
-				return game:HttpGet('https://api.github.com/repos/nyxv4/nyx1/commits/main', true)
-			end)
-			h = ok and type(res) == 'string' and res:match('"sha"%s*:%s*"(%x+)"')
-			if h and #h == 40 then
-				pcall(writefile, 'NYX/profiles/latest.txt', h)
-				pcall(writefile, 'NYX/profiles/lastcheck.txt', tostring(now))
-			end
-		end
-		if h and #h == 40 then
-			commit = h
-		elseif #latest == 40 then
+		if #latest == 40 and latest:match('^%x+$') then
 			commit = latest
-		elseif #commit ~= 40 then
-			commit = 'main'
+		end
+		local lastCheck = tonumber(isfile('NYX/profiles/lastcheck.txt') and readfile('NYX/profiles/lastcheck.txt') or '') or 0
+		if unixTime() - lastCheck >= UPDATE_CHECK_INTERVAL and not shared.NYXUpdateCheckRunning then
+			shared.NYXUpdateCheckRunning = true
+			task.spawn(function()
+				local ok, res = pcall(function()
+					return game:HttpGet('https://api.github.com/repos/nyxv4/nyx1/commits/main', true)
+				end)
+				local h = ok and type(res) == 'string' and res:match('"sha"%s*:%s*"(%x+)"')
+				if h and #h == 40 then
+					pcall(writefile, 'NYX/profiles/latest.txt', h)
+					pcall(writefile, 'NYX/profiles/lastcheck.txt', tostring(unixTime()))
+				end
+				shared.NYXUpdateCheckRunning = nil
+			end)
 		end
 	end
 	forceRef = commit
