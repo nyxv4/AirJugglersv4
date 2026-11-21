@@ -7303,20 +7303,28 @@ run(function()
 		return meta and (meta.sword ~= nil or meta.tinkerChainsaw ~= nil or meta.tinkerMech ~= nil)
 	end
 
+	local function liveHandName()
+		local live = liveHandTool()
+		if not live then return nil end
+		if typeof(live) == 'Instance' then return live.Name end
+		if type(live) == 'string' then return live end
+		return nil
+	end
+
 	-- True when the held item is definitely not a melee weapon (blocks, bows,
 	-- utility items). Keeps sword swing visuals off while building/aiming.
 	local function handIsNonMelee()
-		local live = liveHandTool()
-		if live then return not isMeleeWeapon(live.Name) end
+		local name = liveHandName()
+		if name then return not isMeleeWeapon(name) end
 		return store.hand ~= nil and store.hand.toolType == 'block'
 	end
 
 	-- True while a block/placeable is in hand. Building is deliberate, so the
 	-- aura stands down instead of fighting the player's own block placement.
 	local function handIsBlock()
-		local live = liveHandTool()
-		if live then
-			local meta = bedwars.ItemMeta and bedwars.ItemMeta[live.Name]
+		local name = liveHandName()
+		if name then
+			local meta = bedwars.ItemMeta and bedwars.ItemMeta[name]
 			if meta then return meta.block == true end
 		end
 		return store.hand ~= nil and store.hand.toolType == 'block'
@@ -7499,7 +7507,7 @@ run(function()
 			end
 			lastThirdTrack = playSwingTrack(lplr.Character, thirdId)
 			local trackLen = lastThirdTrack and lastThirdTrack.Length or 0
-			auraSwingUntil = tick() + math.max(AURA_SWING_INTERVAL, trackLen * 0.9)
+			auraSwingUntil = tick() + math.max(AURA_SWING_INTERVAL, math.min(trackLen * 0.9, 0.55))
 		end
 
 		local viewmodel = bedwars.ViewmodelController
