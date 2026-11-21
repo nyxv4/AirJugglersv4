@@ -7064,6 +7064,16 @@ run(function()
 	local kaPeriod = HIT_PERIOD
 	local animPeriod = NORMAL_SWORD_SWING_SPEED -- Animation is ALWAYS decoupled from hit timing
 	local kaLastSrv = 0 -- scheduled server time of the last accepted hit
+	local _kaPingScale, _kaPingAt = 1, 0
+	local function kaPingScale()
+		local now = tick()
+		if now - _kaPingAt >= 0.5 then
+			_kaPingAt = now
+			local p = netPing()
+			_kaPingScale = 1 + math.clamp((p - 0.12) * 0.4, 0, 0.12)
+		end
+		return _kaPingScale
+	end
 	local lastProjectileTime = 0 -- Track when last projectile was fired
 	local glueRemote = {InvokeServer = function() end}
 	local projectileRemote = {InvokeServer = function() end}
@@ -8784,20 +8794,37 @@ run(function()
 				if kaLastSrv > srvNow + 0.25 then kaLastSrv = srvNow end
 				local target = kaPeriod - math.min(dt * 0.5, kaPeriod * 0.06)
 				if srvNow - kaLastSrv >= target then
-					local ok, err = pcall(attemptFire, nil, nil, dt)
-					if not ok and (tick() - lastAttemptFireError) >= 2 then
-						lastAttemptFireError = tick()
-						warn('[Killaura] attemptFire error: ' .. tostring(err))
-					end
+					-- Low FPS can leave several hit slots due in one frame. Pace each
+					-- extra send to its scheduled slot instead of bursting, so the
+					-- server still sees properly spaced hits.
+					local t0, s0 = os.clock(), srvNow
+					local fires = 0
+					repeat
+						local ok, res = pcall(attemptFire, nil, nil, dt)
+						if not ok and (tick() - lastAttemptFireError) >= 2 then
+							lastAttemptFireError = tick()
+							warn('[Killaura] attemptFire error: ' .. tostring(res))
+						end
+						if res ~= true then break end
+						fires = fires + 1
+						if fires >= 4 then break end
+						local waitFor = (kaLastSrv + target) - (s0 + (os.clock() - t0))
+						if waitFor > 0.3 then break end
+						if waitFor > 0 then
+							local w0 = os.clock()
+							repeat until os.clock() - w0 >= waitFor or not (Killaura and Killaura.Enabled)
+						end
+						if workspace:GetServerTimeNow() - kaLastSrv < target then break end
+					until false
 				end
 
 				-- Bookkeeping after the clock check so it can never delay a ready hit.
 				local updateOk, updateErr = pcall(function()
 					local sword, meta = getAttackData()
 					if sword and meta then
-						kaPeriod = SwordTiming.resolvePeriod(meta)
+						kaPeriod = SwordTiming.resolvePeriod(meta) * kaPingScale()
 					else
-						kaPeriod = HIT_PERIOD
+						kaPeriod = HIT_PERIOD * kaPingScale()
 					end
 					animPeriod = NORMAL_SWORD_SWING_SPEED
 					updatePreciseClock()
@@ -9659,7 +9686,7 @@ run(function()
 
 				local sword, meta = grandGetAttackData()
 				if sword and meta then
-					GrandFire.Period = SwordTiming.resolvePeriod(meta)
+					GrandFire.Period = SwordTiming.resolvePeriod(meta) * kaPingScale()
 				end
 
 				local srvNow = workspace:GetServerTimeNow()
@@ -9670,11 +9697,27 @@ run(function()
 				end
 				local target = GrandFire.Period - math.min(dt * 0.5, GrandFire.Period * 0.06)
 				if srvNow - GrandLastSrv >= target then
-					local ok, err = pcall(GrandFire.attempt)
-					if not ok and tick() - (GrandFire.LastErrAt or 0) > 5 then
-						GrandFire.LastErrAt = tick()
-						warn('[GrandKillaura] ' .. tostring(err))
-					end
+					-- Same paced catch-up as Killaura: extra due slots are sent on
+					-- their scheduled times instead of bursting in one frame.
+					local t0, s0 = os.clock(), srvNow
+					local fires = 0
+					repeat
+						local ok, res = pcall(GrandFire.attempt)
+						if not ok and tick() - (GrandFire.LastErrAt or 0) > 5 then
+							GrandFire.LastErrAt = tick()
+							warn('[GrandKillaura] ' .. tostring(res))
+						end
+						if res ~= true then break end
+						fires = fires + 1
+						if fires >= 4 then break end
+						local waitFor = (GrandLastSrv + target) - (s0 + (os.clock() - t0))
+						if waitFor > 0.3 then break end
+						if waitFor > 0 then
+							local w0 = os.clock()
+							repeat until os.clock() - w0 >= waitFor or not (GrandKillaura and GrandKillaura.Enabled)
+						end
+						if workspace:GetServerTimeNow() - GrandLastSrv < target then break end
+					until false
 				end
 			end
 		end)
