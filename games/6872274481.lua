@@ -1439,13 +1439,15 @@ run(function()
 				local here = entitylib.isAlive and entitylib.character.RootPart.Position or nil
 				for _, v in entitylib.List do
 					local root = v.RootPart
-					if here and root and root.Parent and v.Targetable then
+					-- Aim modules never reach past ~60 studs; skip the movement
+					-- analysis for anything farther so PvF crowds stay cheap.
+					if here and root and root.Parent and v.Targetable and (root.Position - here).Magnitude <= 60 then
 						local vel = root.AssemblyLinearVelocity
 						local air = (v.Humanoid and v.Humanoid.FloorMaterial == Enum.Material.Air) or math.abs(vel.Y) > 0.01
 						pcall(prediction.Observe, root, root.Position, vel, air, workspace.Gravity, here, v.HipHeight, v.Jumping and 42.6 or nil)
 					end
 				end
-				task.wait(0.025)
+				task.wait(0.04)
 			else
 				task.wait(0.5)
 			end
@@ -10665,7 +10667,7 @@ run(function()
 	local BurstShots, BurstWait = 0, 0
 	local FuryScale: number = 1 - ((bedwars.BlackMarketeerBalance and bedwars.BlackMarketeerBalance.FURY_POTION_ATTACK_SPEED_MULTIPLIER or 0.5) - 1)
 	local SwordEffect = getmetatable(bedwars.SwordController).__index.playSwordEffect
-	local ScanInterval: number = 1 / 75
+	local ScanInterval: number = 1 / 20
 	local FlatScale: Vector3 = Vector3.new(1, 0, 1)
 	local ParkedPosition: Vector3 = Vector3.new(9e9, 9e9, 9e9)
 	local ParticleShown: {[Part]: boolean} = setmetatable({}, {__mode = "k"})
