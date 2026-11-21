@@ -30801,6 +30801,30 @@ run(function()
 	-- any distance. The client never range-checks the remote, so no position math.
 	local AutoLucia
 	local luciaPinatas = {}
+	local luciaRemote
+
+	local function luciaResolveRemote()
+		if luciaRemote then return luciaRemote end
+		local name = (getgenv().remotes or remotes).DepositPinata
+		if type(name) ~= 'string' or name == '' then return nil end
+		local ok, res = pcall(function() return bedwars.Client:Get(name) end)
+		if ok and res then luciaRemote = res end
+		return luciaRemote
+	end
+
+	local function luciaFireAll()
+		local remote = luciaResolveRemote()
+		if not remote then return end
+		for part in pairs(luciaPinatas) do
+			pcall(function()
+				if remote.SendToServer then
+					remote:SendToServer({pinata = part})
+				elseif remote.CallServerAsync then
+					remote:CallServerAsync({pinata = part})
+				end
+			end)
+		end
+	end
 
 	local function luciaPinataOwnerId(part)
 		local id = part:GetAttribute('PlacedByUserId') or part:GetAttribute('PlacerId')
@@ -30813,7 +30837,10 @@ run(function()
 
 	local function luciaTrack(part)
 		if part and part:IsA('BasePart') and part.Name == 'pinata' and luciaPinataOwnerId(part) == lplr.UserId then
-			luciaPinatas[part] = true
+			if not luciaPinatas[part] then
+				luciaPinatas[part] = true
+				if AutoLucia and AutoLucia.Enabled then luciaFireAll() end
+			end
 		end
 	end
 
@@ -30833,7 +30860,6 @@ run(function()
 					if AutoLucia.Enabled then luciaTrack(obj) end
 				end))
 				AutoLucia:Clean(task.spawn(function()
-					local remote
 					while AutoLucia.Enabled do
 						for part in pairs(luciaPinatas) do
 							if not part.Parent or luciaPinataOwnerId(part) ~= lplr.UserId then
@@ -30841,26 +30867,9 @@ run(function()
 							end
 						end
 						if next(luciaPinatas) then
-							if not remote then
-								local name = (getgenv().remotes or remotes).DepositPinata
-								if type(name) == 'string' and name ~= '' then
-									local ok, res = pcall(function() return bedwars.Client:Get(name) end)
-									if ok and res then remote = res end
-								end
-							end
-							if remote then
-								for part in pairs(luciaPinatas) do
-									pcall(function()
-										if remote.SendToServer then
-											remote:SendToServer({pinata = part})
-										elseif remote.CallServerAsync then
-											remote:CallServerAsync({pinata = part})
-										end
-									end)
-								end
-							end
+							luciaFireAll()
 						end
-						task.wait(0.12)
+						task.wait(0.08)
 					end
 				end))
 			else
