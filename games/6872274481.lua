@@ -4789,14 +4789,23 @@ run(function()
 			return entry
 		end
 		local pa = vape.Modules.ProjectileAimbot
-		local mode = SilentAim.Enabled and 'SilentAim' or pa and pa.Enabled and 'ProjectileAimbot'
-		local solver = mode and projectileAim.Solvers[mode]
+		local silentOn = SilentAim.Enabled
+		local paOn = pa and pa.Enabled
 		local prepared = table.clone(args)
 		local ok, velocity
-		if solver then
+		if silentOn or paOn then
 			ok, velocity = pcall(function()
-				if mode == 'SilentAim' then prepareSilentShot(prepared) end
-				return solver(prepared)
+				-- SilentAim gets first shot; ProjectileAimbot catches anything
+				-- it cannot solve so both modules can stay enabled together.
+				if silentOn then
+					prepareSilentShot(prepared)
+					local v = projectileAim.Solvers.SilentAim(prepared)
+					if typeof(v) == 'Vector3' and v.Magnitude > 0 then return v end
+					prepared = table.clone(args)
+				end
+				if paOn then
+					return projectileAim.Solvers.ProjectileAimbot(prepared)
+				end
 			end)
 		end
 		local aimed = ok and typeof(velocity) == 'Vector3' and velocity.Magnitude > 0
