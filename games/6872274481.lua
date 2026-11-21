@@ -196,7 +196,6 @@ local TrapDisabler
 local TrapSnap, TrapMine, TrapTeleport, TrapPortal = {}, {}, {}, {}
 local AntiFallPart
 local bedwars, remotes, sides, oldinvrender, oldSwing = {}, {}, {}, {}, {}
-local GrandKillaura, GrandTargets, GrandSwingRange, GrandAttackRange, GrandSwing, GrandUpdateRate, GrandAngle, GrandMaxTargets, GrandMouse, GrandGUI, GrandBoxSwingColor, GrandBoxAttackColor, GrandParticleTexture, GrandParticleColor1, GrandParticleColor2, GrandParticleSize, GrandFace, GrandAnimation, GrandAnimationMode, GrandAnimationSpeed, GrandAnimationTween, GrandLimit, GrandLegit, GrandAttackCheck, GrandParticles, GrandBoxes, GrandAttacking, GrandLastSrv, GrandLastAnimTime, GrandFire, GrandAnimTween, GrandArmC0, GrandAnimActive, GRAND_HIT_PERIOD, grandAnimNames
 
 local function getReach(tool)
 	local itemMeta = tool and bedwars.ItemMeta and bedwars.ItemMeta[tool.Name]
@@ -1439,15 +1438,13 @@ run(function()
 				local here = entitylib.isAlive and entitylib.character.RootPart.Position or nil
 				for _, v in entitylib.List do
 					local root = v.RootPart
-					-- Aim modules never reach past ~60 studs; skip the movement
-					-- analysis for anything farther so PvF crowds stay cheap.
-					if here and root and root.Parent and v.Targetable and (root.Position - here).Magnitude <= 60 then
+					if here and root and root.Parent and v.Targetable then
 						local vel = root.AssemblyLinearVelocity
 						local air = (v.Humanoid and v.Humanoid.FloorMaterial == Enum.Material.Air) or math.abs(vel.Y) > 0.01
 						pcall(prediction.Observe, root, root.Position, vel, air, workspace.Gravity, here, v.HipHeight, v.Jumping and 42.6 or nil)
 					end
 				end
-				task.wait(0.04)
+				task.wait(0.025)
 			else
 				task.wait(0.5)
 			end
@@ -4480,7 +4477,6 @@ run(function()
 	local SAFOVCircle
 	local RandomHeadPercent
 	local RandomTorsoPercent
-	local HeadshotChance
 	local OtherProjectiles
 	local Blacklist
 	local AutoCharge
@@ -4678,11 +4674,6 @@ run(function()
 		local targetBodyPart = getTargetPart(plr)
 		if not targetBodyPart then return end
 
-		local head = plr.Character and plr.Character:FindFirstChild('Head')
-		if head and HeadshotChance and math.random(1, 100) <= HeadshotChance.Value then
-			targetBodyPart = head
-		end
-
 		local dist = (targetBodyPart.Position - origin).Magnitude
 		if dist > Range.Value then return end
 
@@ -4792,23 +4783,14 @@ run(function()
 			return entry
 		end
 		local pa = vape.Modules.ProjectileAimbot
-		local silentOn = SilentAim.Enabled
-		local paOn = pa and pa.Enabled
+		local mode = SilentAim.Enabled and 'SilentAim' or pa and pa.Enabled and 'ProjectileAimbot'
+		local solver = mode and projectileAim.Solvers[mode]
 		local prepared = table.clone(args)
 		local ok, velocity
-		if silentOn or paOn then
+		if solver then
 			ok, velocity = pcall(function()
-				-- SilentAim gets first shot; ProjectileAimbot catches anything
-				-- it cannot solve so both modules can stay enabled together.
-				if silentOn then
-					prepareSilentShot(prepared)
-					local v = projectileAim.Solvers.SilentAim(prepared)
-					if typeof(v) == 'Vector3' and v.Magnitude > 0 then return v end
-					prepared = table.clone(args)
-				end
-				if paOn then
-					return projectileAim.Solvers.ProjectileAimbot(prepared)
-				end
+				if mode == 'SilentAim' then prepareSilentShot(prepared) end
+				return solver(prepared)
 			end)
 		end
 		local aimed = ok and typeof(velocity) == 'Vector3' and velocity.Magnitude > 0
@@ -4910,15 +4892,6 @@ run(function()
 		Name = 'Sort Method',
 		List = getSortList({'Distance', 'Damage', 'Cursor'}),
 		Default = 'Cursor',
-	})
-
-	HeadshotChance = SilentAim:CreateSlider({
-		Name = 'Headshot Chance',
-		Min = 1,
-		Max = 100,
-		Default = 100,
-		Suffix = '%',
-		Tooltip = 'Chance each shot aims at the head. 100% = every shot is a headshot.'
 	})
 
 	Range = SilentAim:CreateSlider({
@@ -6569,7 +6542,7 @@ run(function()
 						Ent.RootPart.Position, Ent.RootPart,
 						nil, true
 					)
-					for _ = 1, 3 do
+					for _ = 1, 2 do
 						if not calc or not flight then break end
 						local Spawn = prediction.GetSpawnPosition(OffsetPosition, calc, RelX, RelY, RelZ)
 						local corrected, _, correctedTime = prediction.SolveTrajectory(
@@ -7097,7 +7070,7 @@ run(function()
 		if now - _kaPingAt >= 0.5 then
 			_kaPingAt = now
 			local p = netPing()
-			_kaPingScale = 1 + math.clamp((p - 0.18) * 0.3, 0, 0.08)
+			_kaPingScale = 1 + math.clamp((p - 0.12) * 0.4, 0, 0.12)
 		end
 		return _kaPingScale
 	end
@@ -7168,7 +7141,7 @@ run(function()
 	end
 
 	local function quantize240(value)
-		return math.floor(value / (1 / 240) + 0.5) * (1 / 240)
+		return math.ceil(value / (1 / 240)) * (1 / 240)
 	end
 
 	local function updatePreciseClock()
@@ -7330,28 +7303,20 @@ run(function()
 		return meta and (meta.sword ~= nil or meta.tinkerChainsaw ~= nil or meta.tinkerMech ~= nil)
 	end
 
-	local function liveHandName()
-		local live = liveHandTool()
-		if not live then return nil end
-		if typeof(live) == 'Instance' then return live.Name end
-		if type(live) == 'string' then return live end
-		return nil
-	end
-
 	-- True when the held item is definitely not a melee weapon (blocks, bows,
 	-- utility items). Keeps sword swing visuals off while building/aiming.
 	local function handIsNonMelee()
-		local name = liveHandName()
-		if name then return not isMeleeWeapon(name) end
+		local live = liveHandTool()
+		if live then return not isMeleeWeapon(live.Name) end
 		return store.hand ~= nil and store.hand.toolType == 'block'
 	end
 
 	-- True while a block/placeable is in hand. Building is deliberate, so the
 	-- aura stands down instead of fighting the player's own block placement.
 	local function handIsBlock()
-		local name = liveHandName()
-		if name then
-			local meta = bedwars.ItemMeta and bedwars.ItemMeta[name]
+		local live = liveHandTool()
+		if live then
+			local meta = bedwars.ItemMeta and bedwars.ItemMeta[live.Name]
 			if meta then return meta.block == true end
 		end
 		return store.hand ~= nil and store.hand.toolType == 'block'
@@ -7534,7 +7499,7 @@ run(function()
 			end
 			lastThirdTrack = playSwingTrack(lplr.Character, thirdId)
 			local trackLen = lastThirdTrack and lastThirdTrack.Length or 0
-			auraSwingUntil = tick() + math.max(AURA_SWING_INTERVAL, math.min(trackLen * 0.9, 0.55))
+			auraSwingUntil = tick() + math.max(AURA_SWING_INTERVAL, trackLen * 0.9)
 		end
 
 		local viewmodel = bedwars.ViewmodelController
@@ -8827,7 +8792,7 @@ run(function()
 				-- ServerTimeNow can step backwards on clock resyncs; without this the
 				-- schedule sits in the future and hits stall until real time catches up.
 				if kaLastSrv > srvNow + 0.25 then kaLastSrv = srvNow end
-				local target = kaPeriod - math.min(math.max(dt * 0.5, 0.004), kaPeriod * 0.08)
+				local target = kaPeriod - math.min(dt * 0.5, kaPeriod * 0.06)
 				if srvNow - kaLastSrv >= target then
 					-- Low FPS can leave several hit slots due in one frame. Pace each
 					-- extra send to its scheduled slot instead of bursting, so the
@@ -9505,11 +9470,35 @@ run(function()
 	end)
 
 	-- GrandKillaura: ported from upstream, fully independent state from Killaura
-	GrandParticles, GrandBoxes = {}, {}
-	GrandAttacking = false
-	GrandLastSrv = 0
-	GrandLastAnimTime = 0
-	GrandFire = {
+	local GrandKillaura
+	local GrandTargets
+	local GrandSwingRange
+	local GrandAttackRange
+	local GrandSwing
+	local GrandUpdateRate
+	local GrandAngle
+	local GrandMaxTargets
+	local GrandMouse
+	local GrandGUI
+	local GrandBoxSwingColor
+	local GrandBoxAttackColor
+	local GrandParticleTexture
+	local GrandParticleColor1
+	local GrandParticleColor2
+	local GrandParticleSize
+	local GrandFace
+	local GrandAnimation
+	local GrandAnimationMode
+	local GrandAnimationSpeed
+	local GrandAnimationTween
+	local GrandLimit
+	local GrandLegit
+	local GrandAttackCheck
+	local GrandParticles, GrandBoxes = {}, {}
+	local GrandAttacking = false
+	local GrandLastSrv = 0
+	local GrandLastAnimTime = 0
+	local GrandFire = {
 		Period = 0.29583333333333334,
 		GraceUntil = 0,
 		AcqTime = 0,
@@ -9517,8 +9506,10 @@ run(function()
 		ItemUntil = 0,
 		LastSword = nil
 	}
-	GrandAnimActive = false
-	GRAND_HIT_PERIOD = 0.29583333333333334 -- fallback only; replaced per weapon each frame
+	local GrandAnimTween
+	local GrandArmC0
+	local GrandAnimActive = false
+	local GRAND_HIT_PERIOD = 0.29583333333333334 -- fallback only; replaced per weapon each frame
 
 	function GrandFire.projectileInHand()
 		local live = liveHandTool()
@@ -9704,7 +9695,7 @@ run(function()
 				if GrandLastSrv > srvNow + 0.25 then
 					GrandLastSrv = srvNow
 				end
-				local target = GrandFire.Period - math.min(math.max(dt * 0.5, 0.004), GrandFire.Period * 0.08)
+				local target = GrandFire.Period - math.min(dt * 0.5, GrandFire.Period * 0.06)
 				if srvNow - GrandLastSrv >= target then
 					-- Same paced catch-up as Killaura: extra due slots are sent on
 					-- their scheduled times instead of bursting in one frame.
@@ -10179,7 +10170,7 @@ run(function()
 			end
 		end
 	})
-	grandAnimNames = {}
+	local grandAnimNames = {}
 	for i in anims do
 		table.insert(grandAnimNames, i)
 	end
@@ -10699,7 +10690,7 @@ run(function()
 	local BurstShots, BurstWait = 0, 0
 	local FuryScale: number = 1 - ((bedwars.BlackMarketeerBalance and bedwars.BlackMarketeerBalance.FURY_POTION_ATTACK_SPEED_MULTIPLIER or 0.5) - 1)
 	local SwordEffect = getmetatable(bedwars.SwordController).__index.playSwordEffect
-	local ScanInterval: number = 1 / 20
+	local ScanInterval: number = 1 / 75
 	local FlatScale: Vector3 = Vector3.new(1, 0, 1)
 	local ParkedPosition: Vector3 = Vector3.new(9e9, 9e9, 9e9)
 	local ParticleShown: {[Part]: boolean} = setmetatable({}, {__mode = "k"})

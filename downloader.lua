@@ -117,26 +117,28 @@ if not shared.VapeDeveloper then
 	local oldCommit = readfile('AirJugglersV4/profiles/commit.txt')
 	commit = pinnedCommit or oldCommit
 	if not pinnedCommit then
-		-- Use the last known commit so inject never blocks on the API; the
-		-- freshness check runs in the background for the next inject.
 		local latest = isfile('AirJugglersV4/profiles/latest.txt') and readfile('AirJugglersV4/profiles/latest.txt') or ''
-		if #latest == 40 and latest:match('^%x+$') then
-			commit = latest
-		end
 		local lastCheck = tonumber(isfile('AirJugglersV4/profiles/lastcheck.txt') and readfile('AirJugglersV4/profiles/lastcheck.txt') or '') or 0
-		if unixTime() - lastCheck >= UPDATE_CHECK_INTERVAL and not shared.AirJugglersV4UpdateCheckRunning then
-			shared.AirJugglersV4UpdateCheckRunning = true
-			task.spawn(function()
-				local ok, res = pcall(function()
-					return game:HttpGet('https://api.github.com/repos/nyxv4/AirJugglersv4/commits/main', true)
-				end)
-				local h = ok and type(res) == 'string' and res:match('"sha"%s*:%s*"(%x+)"')
-				if h and #h == 40 then
-					pcall(writefile, 'AirJugglersV4/profiles/latest.txt', h)
-					pcall(writefile, 'AirJugglersV4/profiles/lastcheck.txt', tostring(unixTime()))
-				end
-				shared.AirJugglersV4UpdateCheckRunning = nil
+		local now = unixTime()
+		local h
+		if now - lastCheck < UPDATE_CHECK_INTERVAL and #latest == 40 and latest:match('^%x+$') then
+			h = latest
+		else
+			local ok, res = pcall(function()
+				return game:HttpGet('https://api.github.com/repos/nyxv4/AirJugglersv4/commits/main', true)
 			end)
+			h = ok and type(res) == 'string' and res:match('"sha"%s*:%s*"(%x+)"')
+			if h and #h == 40 then
+				pcall(writefile, 'AirJugglersV4/profiles/latest.txt', h)
+				pcall(writefile, 'AirJugglersV4/profiles/lastcheck.txt', tostring(now))
+			end
+		end
+		if h and #h == 40 then
+			commit = h
+		elseif #latest == 40 then
+			commit = latest
+		elseif #commit ~= 40 then
+			commit = 'main'
 		end
 	end
 	forceRef = commit

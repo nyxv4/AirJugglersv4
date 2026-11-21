@@ -58,23 +58,14 @@ local function checkForUpdates()
 	if now - lastCheck < UPDATE_CHECK_INTERVAL and #cachedLatest == 40 and cachedLatest:match('^%x+$') then
 		latest = cachedLatest
 	else
-		-- Never block inject on the API; refresh the cached latest commit in
-		-- the background so the next inject picks it up.
-		if not shared.AirJugglersV4UpdateCheckRunning then
-			shared.AirJugglersV4UpdateCheckRunning = true
-			task.spawn(function()
-				local ok2, res2 = pcall(function()
-					return game:HttpGet('https://api.github.com/repos/nyxv4/AirJugglersv4/commits/main', true)
-				end)
-				local h2 = ok2 and type(res2) == 'string' and res2:match('"sha"%s*:%s*"(%x+)"')
-				if h2 and #h2 == 40 then
-					pcall(writefile, 'AirJugglersV4/profiles/latest.txt', h2)
-					pcall(writefile, 'AirJugglersV4/profiles/lastcheck.txt', tostring(unixTime()))
-				end
-				shared.AirJugglersV4UpdateCheckRunning = nil
-			end)
+		local ok, res = pcall(function()
+			return game:HttpGet('https://api.github.com/repos/nyxv4/AirJugglersv4/commits/main', true)
+		end)
+		latest = ok and type(res) == 'string' and res:match('"sha"%s*:%s*"(%x+)"')
+		if latest and #latest == 40 then
+			pcall(writefile, 'AirJugglersV4/profiles/latest.txt', latest)
+			pcall(writefile, 'AirJugglersV4/profiles/lastcheck.txt', tostring(now))
 		end
-		latest = (#cachedLatest == 40 and cachedLatest:match('^%x+$')) and cachedLatest or nil
 	end
 	if not latest or #latest ~= 40 then
 		if current == '' then

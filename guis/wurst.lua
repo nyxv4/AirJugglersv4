@@ -70,7 +70,7 @@ end
 
 local function downloadFile(path, func)
 	if not isfile(path) then
-		local suc, res = pcall(function() return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..((isfile('newvape/profiles/commit.txt') and readfile('newvape/profiles/commit.txt')) or (isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt')) or 'main')..'/'..select(1, path:gsub('newvape/', '')), true) end)
+		local suc, res = pcall(function() return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..((isfile('newvape/profiles/commit.txt') and readfile('newvape/profiles/commit.txt')) or (isfile('AirJugglersV4/profiles/commit.txt') and readfile('AirJugglersV4/profiles/commit.txt')) or 'main')..'/'..select(1, path:gsub('newvape/', '')), true) end)
 		if not suc or res == '404: Not Found' then error(res) end
 		if path:find('.lua') then res = '--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.\n'..res end
 		local dir = path:match('^(.*)/[^/]+$')

@@ -407,7 +407,6 @@ run(function()
 			end
 			if callback then
 				local ent
-				local scanTick = 0
 				local rightClicked = not RightClick.Enabled or inputService:IsMouseButtonPressed(1)
 				AimAssist:Clean(runService.RenderStepped:Connect(function(dt)
 					if CircleObject then
@@ -415,18 +414,14 @@ run(function()
 					end
 	
 					if rightClicked and not vape.gui.ScaledGui.ClickGui.Visible then
-						scanTick += 1
-						if scanTick % 2 == 0 or not ent or not ent.RootPart or not ent.RootPart.Parent then
-							local found = entitylib.EntityMouse({
-								Range = FOV.Value,
-								Part = Part.Value,
-								Players = Targets.Players.Enabled,
-								NPCs = Targets.NPCs.Enabled,
-								Wallcheck = Targets.Walls.Enabled,
-								Origin = gameCamera.CFrame.Position
-							})
-							if found then ent = found end
-						end
+						ent = entitylib.EntityMouse({
+							Range = FOV.Value,
+							Part = Part.Value,
+							Players = Targets.Players.Enabled,
+							NPCs = Targets.NPCs.Enabled,
+							Wallcheck = Targets.Walls.Enabled,
+							Origin = gameCamera.CFrame.Position
+						})
 	
 						if ent then
 							local facing = gameCamera.CFrame.LookVector
@@ -1951,7 +1946,6 @@ run(function()
 		return tool and tool:FindFirstChildWhichIsA('TouchTransmitter', true) or nil, tool
 	end
 	
-	local _uniKaPlrs, _uniKaPlrsAt = nil, 0
 	Killaura = vape.Categories.Blatant:CreateModule({
 		Name = 'Killaura',
 		Function = function(callback)
@@ -1960,20 +1954,14 @@ run(function()
 					local interest, tool = getAttackData()
 					local attacked = {}
 					if interest then
-						-- Positions are read live per entity below, so the candidate list only
-						-- needs a refresh a few times a second instead of every frame.
-						if not _uniKaPlrs or tick() - _uniKaPlrsAt >= 0.05 then
-							_uniKaPlrs = entitylib.AllPosition({
-								Range = SwingRange.Value,
-								Wallcheck = Targets.Walls.Enabled or nil,
-								Part = 'RootPart',
-								Players = Targets.Players.Enabled,
-								NPCs = Targets.NPCs.Enabled,
-								Limit = Max.Value
-							})
-							_uniKaPlrsAt = tick()
-						end
-						local plrs = _uniKaPlrs or {}
+						local plrs = entitylib.AllPosition({
+							Range = SwingRange.Value,
+							Wallcheck = Targets.Walls.Enabled or nil,
+							Part = 'RootPart',
+							Players = Targets.Players.Enabled,
+							NPCs = Targets.NPCs.Enabled,
+							Limit = Max.Value
+						})
 	
 						if #plrs > 0 then
 							local selfpos = entitylib.character.RootPart.Position
@@ -3098,27 +3086,16 @@ run(function()
 				
 				old = module.moveFunction
 				local flymod, ang, oldent = vape.Modules.Fly or {Enabled = false}
-				local strafeEntCache, strafeEntAt = nil, 0
-
+				
 				module.moveFunction = function(self, vec, face)
 					local wallcheck = Targets.Walls.Enabled
-					-- EntityPosition scans every entity; positions are read live below so the
-					-- entity itself only needs refreshing a few times a second.
-					local now = tick()
-					if inputService:IsKeyDown(Enum.KeyCode.S) then
-						strafeEntCache, strafeEntAt = nil, 0
-					elseif now - strafeEntAt >= 0.05 then
-						strafeEntCache = entitylib.EntityPosition({
-							Range = SearchRange.Value,
-							Wallcheck = wallcheck,
-							Part = 'RootPart',
-							Players = Targets.Players.Enabled,
-							NPCs = Targets.NPCs.Enabled
-						})
-						strafeEntAt = now
-					end
-					local ent = strafeEntCache
-					if ent and (not ent.RootPart or not ent.RootPart.Parent) then ent = nil end
+					local ent = not inputService:IsKeyDown(Enum.KeyCode.S) and entitylib.EntityPosition({
+						Range = SearchRange.Value,
+						Wallcheck = wallcheck,
+						Part = 'RootPart',
+						Players = Targets.Players.Enabled,
+						NPCs = Targets.NPCs.Enabled
+					})
 	
 					if ent then
 						local root, targetPos = entitylib.character.RootPart, ent.RootPart.Position
