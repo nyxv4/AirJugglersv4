@@ -4,7 +4,7 @@ local _runCount = 0
 local _runBusy = false
 -- executors that run require() at game identity leave the thread there, which breaks GUI creation in later blocks
 local function raiseIdentity()
-	local raiser = setthreadidentity or shared.NYXSetIdentity
+	local raiser = setthreadidentity or shared.AirJugglersV4SetIdentity
 	if type(raiser) == 'function' then
 		pcall(raiser, 8)
 	end
@@ -21,13 +21,13 @@ local run = function(func)
 		local ok, err = pcall(func)
 		_runBusy = false
 		if not ok then
-			warn('[NYX] module failed to load: ' .. tostring(err))
+			warn('[AirJugglersV4] module failed to load: ' .. tostring(err))
 		end
 		return
 	end
 	local ok, err = pcall(func)
 	if not ok then
-		warn('[NYX] module failed to load: ' .. tostring(err))
+		warn('[AirJugglersV4] module failed to load: ' .. tostring(err))
 	end
 end
 task.wait()
@@ -212,7 +212,7 @@ setmetatable(remotes, {
 			task.delay(10, function()
 				if rawget(remotes, key) == nil then
 					pcall(function()
-						vape.Notify('[NYX] remote "' .. tostring(key) .. '" changed or removed some features may not work bru (dm @5qvx for fix)', 6)
+						vape.Notify('[AirJugglersV4] remote "' .. tostring(key) .. '" changed or removed some features may not work bru (dm @5qvx for fix)', 6)
 					end)
 				end
 			end)
@@ -228,7 +228,7 @@ local function addBlur(parent)
 	blur.Size = UDim2.new(1, 89, 1, 52)
 	blur.Position = UDim2.fromOffset(-48, -31)
 	blur.BackgroundTransparency = 1
-	blur.Image = getcustomasset('NYX/assets/new/blur.png')
+	blur.Image = getcustomasset('AirJugglersV4/assets/new/blur.png')
 	blur.ScaleType = Enum.ScaleType.Slice
 	blur.SliceCenter = Rect.new(52, 31, 261, 502)
 	blur.Parent = parent
@@ -1588,7 +1588,7 @@ run(function()
 
 		if remote == '' or remote == nil then
 			if not preDumped[i] then
-				notif('NYX', 'Failed to grab remote ('..tostring(i)..')', 10, 'alert')
+				notif('AirJugglersV4', 'Failed to grab remote ('..tostring(i)..')', 10, 'alert')
 			end
 			remote = preDumped[i] or ''
 		end
@@ -10227,7 +10227,7 @@ run(function()
 end)
 -- CatVape compatibility shims for the verbatim Killaura port (libraries/helpers the hub does not ship)
 run(function()
-	if shared.NYXSetIdentity then pcall(shared.NYXSetIdentity, 8) end
+	if shared.AirJugglersV4SetIdentity then pcall(shared.AirJugglersV4SetIdentity, 8) end
 	local getProjectiles, isAfk = (function()
 		local function projectileMatches(enabled, ...)
 			for _, wanted in enabled or {} do
@@ -12054,7 +12054,7 @@ run(function()
 	})
 end, loadTrace)
 		if not loadOk then
-			notif('NYX', 'CatKillAura failed to load: '..tostring(loadErr), 15, 'alert')
+			notif('AirJugglersV4', 'CatKillAura failed to load: '..tostring(loadErr), 15, 'alert')
 		end
 	end)
 						
@@ -19567,14 +19567,14 @@ run(function()
 	end
 
 	local function cleanupVisuals()
-		destroyNamed(PlayerGui, "NYXKitRender")
-		destroyNamed(PlayerGui, "NYXKitIcon")
-		destroyNamed(PlayerGui, "NYXKitLevel")
-		destroyNamed(PlayerGui, "NYXLastKit")
+		destroyNamed(PlayerGui, "AirJugglersV4KitRender")
+		destroyNamed(PlayerGui, "AirJugglersV4KitIcon")
+		destroyNamed(PlayerGui, "AirJugglersV4KitLevel")
+		destroyNamed(PlayerGui, "AirJugglersV4LastKit")
 	end
 
 	local function cleanupLastMatch()
-		destroyNamed(PlayerGui, "NYXLastKit")
+		destroyNamed(PlayerGui, "AirJugglersV4LastKit")
 	end
 
 	local function extractHistory(payload)
@@ -19899,10 +19899,10 @@ run(function()
 		if not host or not host.Parent then return end
 		unclip(host)
 
-		local icon = host:FindFirstChild("NYXKitRender")
+		local icon = host:FindFirstChild("AirJugglersV4KitRender")
 		if not icon then
 			icon = Instance.new("ImageLabel")
-			icon.Name = "NYXKitRender"
+			icon.Name = "AirJugglersV4KitRender"
 			icon.AnchorPoint = Vector2.new(1, 0.5)
 			icon.Position = UDim2.new(1.05, 0, 0.5, 0)
 			icon.Size = UDim2.new(1.5, 0, 1.5, 0)
@@ -19935,10 +19935,10 @@ run(function()
 		if not nameLabel then return end
 		unclip(nameLabel)
 
-		local levelLabel = nameLabel:FindFirstChild("NYXKitLevel")
+		local levelLabel = nameLabel:FindFirstChild("AirJugglersV4KitLevel")
 		if not levelLabel then
 			levelLabel = Instance.new("TextLabel")
-			levelLabel.Name = "NYXKitLevel"
+			levelLabel.Name = "AirJugglersV4KitLevel"
 			levelLabel.AnchorPoint = Vector2.new(0, 0.5)
 			levelLabel.Position = UDim2.new(1, 5, 0.5, 0)
 			levelLabel.Size = UDim2.fromOffset(44, 15)
@@ -19964,7 +19964,7 @@ run(function()
 	local function createLastMatchBadge(host, plr, slot)
 		slot = slot or 1
 		local badge = Instance.new("Frame")
-		badge.Name = "NYXLastKit"
+		badge.Name = "AirJugglersV4LastKit"
 		badge:SetAttribute("UserId", plr.UserId)
 		badge:SetAttribute("Slot", slot)
 		badge.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -20013,7 +20013,7 @@ run(function()
 
 		if not (LastKitToggle and LastKitToggle.Enabled) then
 			for _, old in host:GetChildren() do
-				if old.Name == "NYXLastKit" then
+				if old.Name == "AirJugglersV4LastKit" then
 					old:Destroy()
 				end
 			end
@@ -20025,7 +20025,7 @@ run(function()
 		local count = LastKitCount and LastKitCount.Value or 1
 		local badges = {}
 		for _, obj in host:GetChildren() do
-			if obj.Name == "NYXLastKit" then
+			if obj.Name == "AirJugglersV4LastKit" then
 				local slot = obj:GetAttribute("Slot") or 1
 				if slot > count or badges[slot] then
 					obj:Destroy()
@@ -20111,9 +20111,9 @@ run(function()
 	end
 
 	local function ensureParty(host, plr)
-		local icon = host and host:FindFirstChild("NYXKitRender")
+		local icon = host and host:FindFirstChild("AirJugglersV4KitRender")
 		if not icon then return end
-		local badge = icon:FindFirstChild("NYXParty")
+		local badge = icon:FindFirstChild("AirJugglersV4Party")
 		local num = PartyToggle and PartyToggle.Enabled and currentPartyNumbers[plr.UserId]
 		if not num then
 			if badge then
@@ -20123,7 +20123,7 @@ run(function()
 		end
 		if not badge then
 			badge = Instance.new("TextLabel")
-			badge.Name = "NYXParty"
+			badge.Name = "AirJugglersV4Party"
 			badge.AnchorPoint = Vector2.new(1, 0)
 			badge.Position = UDim2.new(1, 2, 0, -2)
 			badge.Size = UDim2.fromOffset(16, 16)
@@ -20160,9 +20160,9 @@ run(function()
 			local mine, theirs = player:GetAttribute("Team"), plr:GetAttribute("Team")
 			if mine and theirs and mine == theirs then
 				local mateHost = findHost(render)
-				destroyNamed(mateHost, "NYXKitRender")
-				destroyNamed(mateHost, "NYXKitLevel")
-				destroyNamed(mateHost, "NYXLastKit")
+				destroyNamed(mateHost, "AirJugglersV4KitRender")
+				destroyNamed(mateHost, "AirJugglersV4KitLevel")
+				destroyNamed(mateHost, "AirJugglersV4LastKit")
 			end
 			return
 		end
@@ -20174,7 +20174,7 @@ run(function()
 		if LevelToggle and LevelToggle.Enabled then
 			ensureLevel(host, plr)
 		else
-			destroyNamed(host, "NYXKitLevel")
+			destroyNamed(host, "AirJugglersV4KitLevel")
 		end
 		ensureLastMatch(host, plr)
 		if PartyToggle and PartyToggle.Enabled and lastKitCache[plr.UserId] == nil then
@@ -20359,7 +20359,7 @@ run(function()
 			elseif ct == 'unverified' then c.impossible += 1
 			else c.mod += 1 end
 		end
-		getgenv()._NYX_staffCounts = c
+		getgenv()._AirJugglersV4_staffCounts = c
 		vapeEvents.StaffCountUpdate:Fire()
 	end
 
@@ -24320,7 +24320,7 @@ run(function()
 		close.Position = UDim2.new(1, -35, 0, 9)
 		close.BackgroundColor3 = Color3.new(1, 1, 1)
 		close.BackgroundTransparency = 1
-		close.Image = getcustomasset('NYX/assets/new/close.png')
+		close.Image = getcustomasset('AirJugglersV4/assets/new/close.png')
 		close.ImageColor3 = color.Light(uipallet.Text, 0.2)
 		close.ImageTransparency = 0.5
 		close.AutoButtonColor = false
@@ -24435,7 +24435,7 @@ run(function()
 		searchicon.Size = UDim2.fromOffset(14, 14)
 		searchicon.Position = UDim2.new(1, -26, 0, 8)
 		searchicon.BackgroundTransparency = 1
-		searchicon.Image = getcustomasset('NYX/assets/new/search.png')
+		searchicon.Image = getcustomasset('AirJugglersV4/assets/new/search.png')
 		searchicon.ImageColor3 = color.Light(uipallet.Main, 0.37)
 		searchicon.Parent = searchbkg
 		local children = Instance.new('ScrollingFrame')
@@ -24576,7 +24576,7 @@ run(function()
 		textbuttonicon.Position = UDim2.fromScale(0.5, 0.5)
 		textbuttonicon.AnchorPoint = Vector2.new(0.5, 0.5)
 		textbuttonicon.BackgroundTransparency = 1
-		textbuttonicon.Image = getcustomasset('NYX/assets/new/add.png')
+		textbuttonicon.Image = getcustomasset('AirJugglersV4/assets/new/add.png')
 		textbuttonicon.ImageColor3 = Color3.fromHSV(0.46, 0.96, 0.52)
 		textbuttonicon.Parent = textbutton
 		local childrenlist = Instance.new('Frame')
@@ -24669,7 +24669,7 @@ run(function()
 			close.Position = UDim2.new(1, -23, 0, 6)
 			close.BackgroundColor3 = Color3.new(1, 1, 1)
 			close.BackgroundTransparency = 1
-			close.Image = getcustomasset('NYX/assets/new/closemini.png')
+			close.Image = getcustomasset('AirJugglersV4/assets/new/closemini.png')
 			close.ImageColor3 = color.Light(uipallet.Text, 0.2)
 			close.ImageTransparency = 0.5
 			close.AutoButtonColor = false
@@ -25641,7 +25641,7 @@ run(function()
 						Size = UDim2.new(1, 89, 1, 52),
 						Position = UDim2.fromOffset(-48, -31),
 						BackgroundTransparency = 1,
-						Image = getcustomasset('NYX/assets/new/blur.png'),
+						Image = getcustomasset('AirJugglersV4/assets/new/blur.png'),
 						ScaleType = Enum.ScaleType.Slice,
 						SliceCenter = Rect.new(52, 31, 261, 502)
 					}),
@@ -30274,7 +30274,7 @@ run(function()
 		blur.Size = UDim2.new(1, 89, 1, 52)
 		blur.Position = UDim2.fromOffset(-48, -31)
 		blur.BackgroundTransparency = 1
-		blur.Image = getcustomasset('NYX/assets/new/blur.png')
+		blur.Image = getcustomasset('AirJugglersV4/assets/new/blur.png')
 		blur.ScaleType = Enum.ScaleType.Slice
 		blur.SliceCenter = Rect.new(52, 31, 261, 502)
 		blur.Parent = parent
@@ -35583,7 +35583,7 @@ run(function()
 				Session.Thread = task.spawn(function()
 					local ok, err = pcall(AutoKitFunctions[Kit], Session)
 					if not ok then
-						warn('[NYX] autokit ' .. Kit .. ': ' .. tostring(err))
+						warn('[AirJugglersV4] autokit ' .. Kit .. ': ' .. tostring(err))
 					end
 				end)
 			end

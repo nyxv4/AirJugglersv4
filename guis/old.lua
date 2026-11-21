@@ -1781,7 +1781,7 @@ function mainapi:CreateBar()
 	bar.BorderSizePixel = 0
 	bar.Parent = clickgui
 	local logo = Instance.new('ImageLabel')
-	logo.Size = UDim2.fromOffset(104, 25)
+	logo.Size = UDim2.fromOffset(95, 25)
 	logo.Position = UDim2.fromOffset(11, 8)
 	logo.BackgroundTransparency = 1
 	logo.Image = getcustomasset('newvape/assets/old/barlogo.png')
@@ -3094,7 +3094,7 @@ function mainapi:Load(skipgui, profile)
 		guidata = loadJson('newvape/profiles/'..game.GameId..'.gui.txt')
 		if not guidata then
 			guidata = {Categories = {}}
-			self:CreateNotification('NYX', 'Failed to load GUI settings.', 10, 'alert')
+			self:CreateNotification('AirJugglersV4', 'Failed to load GUI settings.', 10, 'alert')
 			savecheck = false
 		end
 
@@ -3142,7 +3142,7 @@ function mainapi:Load(skipgui, profile)
 				Modules = {},
 				Legit = {}
 			}
-			self:CreateNotification('NYX', 'Failed to load '..self.Profile..' profile.', 10, 'alert')
+			self:CreateNotification('AirJugglersV4', 'Failed to load '..self.Profile..' profile.', 10, 'alert')
 			savecheck = false
 		end
 
@@ -4086,7 +4086,7 @@ local textguirender = textgui:CreateToggle({
 local VapeLabels = {}
 local VapeLogo = Instance.new('ImageLabel')
 VapeLogo.Name = 'Logo'
-VapeLogo.Size = UDim2.fromOffset(112, 26)
+VapeLogo.Size = UDim2.fromOffset(99, 26)
 VapeLogo.Position = UDim2.new(1, -142, 0, 3)
 VapeLogo.BackgroundTransparency = 1
 VapeLogo.BorderSizePixel = 0
@@ -4149,7 +4149,7 @@ function mainapi:UpdateTextGUI(afterload)
 	if textgui.Button.Enabled then
 		local right = textgui.Children.AbsolutePosition.X > (gui.AbsoluteSize.X / 2)
 		VapeLogo.Visible = textguiwatermark.Enabled
-		VapeLogo.Position = right and UDim2.new(1 / VapeTextScale.Scale, -157, 0, 4) or UDim2.fromOffset(5, 4)
+		VapeLogo.Position = right and UDim2.new(1 / VapeTextScale.Scale, -144, 0, 4) or UDim2.fromOffset(5, 4)
 		VapeLogoShadow.Visible = textguishadow.Enabled
 		VapeLabelSorter.HorizontalAlignment = right and Enum.HorizontalAlignment.Right or Enum.HorizontalAlignment.Left
 		VapeLabelHolder.Size = UDim2.fromScale(1 / VapeTextScale.Scale, 1)

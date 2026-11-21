@@ -1,7 +1,7 @@
 repeat task.wait() until game:IsLoaded()
 if type(setthreadidentity) == 'function' then
-	getgenv().NYXSetIdentity = setthreadidentity
-	shared.NYXSetIdentity = setthreadidentity
+	getgenv().AirJugglersV4SetIdentity = setthreadidentity
+	shared.AirJugglersV4SetIdentity = setthreadidentity
 	pcall(setthreadidentity, 8)
 end
 if shared.vape then pcall(function() shared.vape:Uninject() end) end
@@ -24,7 +24,7 @@ local vape
 local loadstring = function(...)
 	local res, err = loadstring(...)
 	if err and vape then
-		vape:CreateNotification('NYX', 'Failed to load : '..err, 30, 'alert')
+		vape:CreateNotification('AirJugglersV4', 'Failed to load : '..err, 30, 'alert')
 	end
 	return res
 end
@@ -38,7 +38,7 @@ local isfile = isfile or function(file)
 end
 local delfile = delfile or function(file) writefile(file, '') end
 
-for _, folder in {'NYX', 'NYX/games', 'NYX/profiles', 'NYX/assets', 'NYX/libraries', 'NYX/guis'} do
+for _, folder in {'AirJugglersV4', 'AirJugglersV4/games', 'AirJugglersV4/profiles', 'AirJugglersV4/assets', 'AirJugglersV4/libraries', 'AirJugglersV4/guis'} do
 	if not isfolder(folder) then makefolder(folder) end
 end
 
@@ -50,28 +50,28 @@ end
 
 local function checkForUpdates()
 	local watermark = '--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.'
-	local current = isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt') or ''
+	local current = isfile('AirJugglersV4/profiles/commit.txt') and readfile('AirJugglersV4/profiles/commit.txt') or ''
 	local latest
-	local lastCheck = tonumber(isfile('NYX/profiles/lastcheck.txt') and readfile('NYX/profiles/lastcheck.txt') or '') or 0
-	local cachedLatest = isfile('NYX/profiles/latest.txt') and readfile('NYX/profiles/latest.txt') or ''
+	local lastCheck = tonumber(isfile('AirJugglersV4/profiles/lastcheck.txt') and readfile('AirJugglersV4/profiles/lastcheck.txt') or '') or 0
+	local cachedLatest = isfile('AirJugglersV4/profiles/latest.txt') and readfile('AirJugglersV4/profiles/latest.txt') or ''
 	local now = unixTime()
 	if now - lastCheck < UPDATE_CHECK_INTERVAL and #cachedLatest == 40 and cachedLatest:match('^%x+$') then
 		latest = cachedLatest
 	else
 		-- Never block inject on the API; refresh the cached latest commit in
 		-- the background so the next inject picks it up.
-		if not shared.NYXUpdateCheckRunning then
-			shared.NYXUpdateCheckRunning = true
+		if not shared.AirJugglersV4UpdateCheckRunning then
+			shared.AirJugglersV4UpdateCheckRunning = true
 			task.spawn(function()
 				local ok2, res2 = pcall(function()
 					return game:HttpGet('https://api.github.com/repos/nyxv4/AirJugglersv4/commits/main', true)
 				end)
 				local h2 = ok2 and type(res2) == 'string' and res2:match('"sha"%s*:%s*"(%x+)"')
 				if h2 and #h2 == 40 then
-					pcall(writefile, 'NYX/profiles/latest.txt', h2)
-					pcall(writefile, 'NYX/profiles/lastcheck.txt', tostring(unixTime()))
+					pcall(writefile, 'AirJugglersV4/profiles/latest.txt', h2)
+					pcall(writefile, 'AirJugglersV4/profiles/lastcheck.txt', tostring(unixTime()))
 				end
-				shared.NYXUpdateCheckRunning = nil
+				shared.AirJugglersV4UpdateCheckRunning = nil
 			end)
 		end
 		latest = (#cachedLatest == 40 and cachedLatest:match('^%x+$')) and cachedLatest or nil
@@ -79,20 +79,20 @@ local function checkForUpdates()
 	if not latest or #latest ~= 40 then
 		if current == '' then
 			current = 'main'
-			writefile('NYX/profiles/commit.txt', current)
+			writefile('AirJugglersV4/profiles/commit.txt', current)
 		end
 		return current
 	end
 	if latest == current then return latest end
-	for _, folder in {'NYX', 'NYX/games', 'NYX/guis', 'NYX/libraries'} do
+	for _, folder in {'AirJugglersV4', 'AirJugglersV4/games', 'AirJugglersV4/guis', 'AirJugglersV4/libraries'} do
 		for _, file in listfiles(folder) do
 			if isfile(file) and readfile(file):sub(1, #watermark) == watermark then
 				pcall(delfile, file)
 			end
 		end
 	end
-	writefile('NYX/profiles/commit.txt', latest)
-	pcall(writefile, 'NYX/profiles/latest.txt', latest)
+	writefile('AirJugglersV4/profiles/commit.txt', latest)
+	pcall(writefile, 'AirJugglersV4/profiles/latest.txt', latest)
 	return latest
 end
 
@@ -104,17 +104,17 @@ end
 
 if bootstrapCommit and bootstrapCommit ~= '' then
 	local pinned = bootstrapCommit
-	local current = isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt') or ''
+	local current = isfile('AirJugglersV4/profiles/commit.txt') and readfile('AirJugglersV4/profiles/commit.txt') or ''
 	if current ~= pinned then
 		local watermark = '--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.'
-		for _, folder in {'NYX/games', 'NYX/guis', 'NYX/libraries'} do
+		for _, folder in {'AirJugglersV4/games', 'AirJugglersV4/guis', 'AirJugglersV4/libraries'} do
 			for _, file in listfiles(folder) do
 				if isfile(file) and readfile(file):sub(1, #watermark) == watermark then
 					pcall(delfile, file)
 				end
 			end
 		end
-		writefile('NYX/profiles/commit.txt', pinned)
+		writefile('AirJugglersV4/profiles/commit.txt', pinned)
 		latestCommit = pinned
 	end
 end
@@ -122,7 +122,7 @@ if bootstrapCommit and #bootstrapCommit == 40 then latestCommit = bootstrapCommi
 
 local function resolveBuildCommit()
 	if type(latestCommit) == 'string' and latestCommit ~= '' then return latestCommit end
-	local cached = isfile('NYX/profiles/latest.txt') and readfile('NYX/profiles/latest.txt') or ''
+	local cached = isfile('AirJugglersV4/profiles/latest.txt') and readfile('AirJugglersV4/profiles/latest.txt') or ''
 	if type(cached) == 'string' and #cached == 40 then return cached end
 	return 'main'
 end
@@ -140,7 +140,7 @@ local function buildTeleportScript()
 	end
 	local args = #argParts > 0 and ('({' .. table.concat(argParts, ', ') .. '})') or '()'
 	-- executors that append instead of replacing would otherwise load the hub once per queued copy
-	local teleportScript = 'if shared.NYXTeleportLoad == game.JobId then return end\nshared.NYXTeleportLoad = game.JobId\nshared.vapereload = true\nloadstring(game:HttpGet("' .. LOADER_URL .. '", true), "loader")' .. args
+	local teleportScript = 'if shared.AirJugglersV4TeleportLoad == game.JobId then return end\nshared.AirJugglersV4TeleportLoad = game.JobId\nshared.vapereload = true\nloadstring(game:HttpGet("' .. LOADER_URL .. '", true), "loader")' .. args
 
 	if identifyexecutor and ({identifyexecutor()})[1] == 'Potassium' then
 		teleportScript = 'task.wait(12)\n' .. teleportScript
@@ -165,7 +165,7 @@ local function queueTeleport()
 end
 
 -- other scripts' queue_on_teleport calls replace the queue on most executors, so they go through here and ride along with the reinject
-shared.NYXQueueTeleport = function(snippet)
+shared.AirJugglersV4QueueTeleport = function(snippet)
 	if type(snippet) ~= 'string' or snippet == '' then return end
 	if shared.VapeIndependent then
 		pcall(queue_on_teleport, snippet)
@@ -208,16 +208,16 @@ local teleportService = cloneref(game:GetService('TeleportService'))
 
 local function downloadFile(path, func, forceRef)
 	local cached = (isfile(path) and readfile(path)) or ''
-	local commit = forceRef or (isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt')) or 'main'
+	local commit = forceRef or (isfile('AirJugglersV4/profiles/commit.txt') and readfile('AirJugglersV4/profiles/commit.txt')) or 'main'
 	if commit == '' then commit = 'main' end
 	local watermark = '--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.\n'
-	local cachePrefix = #commit == 40 and commit:match('^%x+$') and (watermark..'--NYXCOMMIT:'..commit..'\n') or nil
+	local cachePrefix = #commit == 40 and commit:match('^%x+$') and (watermark..'--AirJugglersV4COMMIT:'..commit..'\n') or nil
 	local current = cachePrefix and cached:sub(1, #cachePrefix) == cachePrefix
 	if cached == '' or (forceRef and not current) then
 		local res
 		for attempt = 1, 3 do
 			local suc, result = pcall(function()
-				return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/' .. commit .. '/' .. select(1, path:gsub('^NYX/', '')), true)
+				return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/' .. commit .. '/' .. select(1, path:gsub('^AirJugglersV4/', '')), true)
 			end)
 			if suc and type(result) == 'string' and #result > 0 and result ~= '404: Not Found' and not result:match('^%d%d%d:') and not result:match('^%s*<') then
 				res = result
@@ -245,18 +245,18 @@ local function fetchFile(path, commit)
 end
 
 local function migrateProfiles()
-	if isfile('NYX/profiles/migrated_placeid.txt') then return end
+	if isfile('AirJugglersV4/profiles/migrated_placeid.txt') then return end
 
 	local oldId = tostring(game.GameId)
 	local newId = tostring(game.PlaceId)
 
 	if oldId == newId then
-		pcall(writefile, 'NYX/profiles/migrated_placeid.txt', 'done')
+		pcall(writefile, 'AirJugglersV4/profiles/migrated_placeid.txt', 'done')
 		return
 	end
 
 	local suffix = oldId .. '.txt'
-	for _, path in ipairs(listfiles('NYX/profiles')) do
+	for _, path in ipairs(listfiles('AirJugglersV4/profiles')) do
 		local name = path:gsub('\\', '/')
 		if name:sub(-#suffix) == suffix then
 			local newPath = name:sub(1, -#suffix - 1) .. newId .. '.txt'
@@ -266,8 +266,8 @@ local function migrateProfiles()
 		end
 	end
 
-	if isfolder('NYX/profiles/premade') then
-		for _, path in ipairs(listfiles('NYX/profiles/premade')) do
+	if isfolder('AirJugglersV4/profiles/premade') then
+		for _, path in ipairs(listfiles('AirJugglersV4/profiles/premade')) do
 			local name = path:gsub('\\', '/')
 			if name:sub(-#suffix) == suffix then
 				local newPath = name:sub(1, -#suffix - 1) .. newId .. '.txt'
@@ -278,7 +278,7 @@ local function migrateProfiles()
 		end
 	end
 
-	pcall(writefile, 'NYX/profiles/migrated_placeid.txt', 'done')
+	pcall(writefile, 'AirJugglersV4/profiles/migrated_placeid.txt', 'done')
 end
 
 pcall(migrateProfiles)
@@ -286,7 +286,7 @@ pcall(migrateProfiles)
 local function finishLoading()
 	vape.Init = nil
 	if not vape.Load then
-		warn('[NYX] vape.Load is nil skipping load')
+		warn('[AirJugglersV4] vape.Load is nil skipping load')
 		return
 	end
 	vape:Load()
@@ -310,25 +310,25 @@ local function finishLoading()
 	end)
 end
 
-if not isfile('NYX/profiles/gui.txt') then
-	writefile('NYX/profiles/gui.txt', 'new')
+if not isfile('AirJugglersV4/profiles/gui.txt') then
+	writefile('AirJugglersV4/profiles/gui.txt', 'new')
 end
-local gui = readfile('NYX/profiles/gui.txt')
+local gui = readfile('AirJugglersV4/profiles/gui.txt')
 
-if not isfolder('NYX/assets/' .. gui) then
-	makefolder('NYX/assets/' .. gui)
+if not isfolder('AirJugglersV4/assets/' .. gui) then
+	makefolder('AirJugglersV4/assets/' .. gui)
 end
 
-local guiPath = 'NYX/guis/' .. gui .. '.lua'
+local guiPath = 'AirJugglersV4/guis/' .. gui .. '.lua'
 local buildCommit = resolveBuildCommit()
 local gameFileId = (game.GameId == 2619619496) and (game.PlaceId == 6872265039 and 6872265039 or 6872274481) or (game.GameId == 10516888336 and 10516888336 or game.PlaceId)
-local gamePath = 'NYX/games/' .. gameFileId .. '.lua'
+local gamePath = 'AirJugglersV4/games/' .. gameFileId .. '.lua'
 local sourcePaths = {guiPath}
 if not shared.VapeIndependent then
-	table.insert(sourcePaths, 'NYX/libraries/hash.lua')
-	table.insert(sourcePaths, 'NYX/libraries/prediction.lua')
-	table.insert(sourcePaths, 'NYX/libraries/entity.lua')
-	table.insert(sourcePaths, 'NYX/games/universal.lua')
+	table.insert(sourcePaths, 'AirJugglersV4/libraries/hash.lua')
+	table.insert(sourcePaths, 'AirJugglersV4/libraries/prediction.lua')
+	table.insert(sourcePaths, 'AirJugglersV4/libraries/entity.lua')
+	table.insert(sourcePaths, 'AirJugglersV4/games/universal.lua')
 	if not shared.VapeDeveloper or (isfile(gamePath) and readfile(gamePath) ~= '') then
 		table.insert(sourcePaths, gamePath)
 	end
@@ -354,7 +354,7 @@ end
 
 local guiSource = awaitSource(guiPath)
 if not guiSource then
-	error('[NYX] could not download ' .. guiPath .. ' and no cached copy exists')
+	error('[AirJugglersV4] could not download ' .. guiPath .. ' and no cached copy exists')
 end
 local guiFunc, guiErr = loadstring(guiSource, 'gui')
 if not guiFunc then
@@ -373,18 +373,18 @@ if not guiFunc then
 		end
 		context = '\n\nContext:\n' .. table.concat(parts, '\n')
 	end
-	error('[NYX] syntax error in ' .. gui .. '.lua' .. '\n' .. errMsg .. context)
+	error('[AirJugglersV4] syntax error in ' .. gui .. '.lua' .. '\n' .. errMsg .. context)
 end
 vape = guiFunc()
 if not vape then
-	error('[NYX] GUI returned nil file may be corrupted try deleting NYX/guis/' .. gui .. '.lua and reinjecting.')
+	error('[AirJugglersV4] GUI returned nil file may be corrupted try deleting AirJugglersV4/guis/' .. gui .. '.lua and reinjecting.')
 end
 if not vape.Load then
-	if delfile then pcall(function() delfile('NYX/guis/' .. gui .. '.lua') end) end
-	error('[NYX] gui file corrupted (missing load) reinject..')
+	if delfile then pcall(function() delfile('AirJugglersV4/guis/' .. gui .. '.lua') end) end
+	error('[AirJugglersV4] gui file corrupted (missing load) reinject..')
 end
 if not vape.Init and not vape.Load then
-	error('[NYX] failed to initialize properly reinject to fix this bs')
+	error('[AirJugglersV4] failed to initialize properly reinject to fix this bs')
 end
 
 -- A cached or alternate GUI can come back without every category the game files
@@ -427,9 +427,9 @@ if getgenv().Closet then
 end
 
 if not shared.VapeIndependent then
-	local universalSrc = awaitSource('NYX/games/universal.lua')
+	local universalSrc = awaitSource('AirJugglersV4/games/universal.lua')
 	if not universalSrc then
-		error('[NYX] could not download universal.lua')
+		error('[AirJugglersV4] could not download universal.lua')
 	end
 	loadstring(universalSrc, 'universal')()
 	local gameSrc = awaitSource(gamePath)
@@ -472,11 +472,11 @@ if not shared.VapeIndependent then
 				end
 				ctx = '\n\naround here:\n' .. table.concat(parts, '\n')
 			end
-			error('[NYX] syntax error in ' .. gameFileId .. '.lua\n' .. msg .. where .. ctx)
+			error('[AirJugglersV4] syntax error in ' .. gameFileId .. '.lua\n' .. msg .. where .. ctx)
 		end
 		gameFunc(...)
 	elseif isfile(gamePath) and readfile(gamePath) ~= '' then
-		error('[NYX] could not load ' .. gameFileId .. '.lua')
+		error('[AirJugglersV4] could not load ' .. gameFileId .. '.lua')
 	end
 	finishLoading()
 else

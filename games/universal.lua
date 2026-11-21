@@ -1,7 +1,7 @@
 local loadstring = function(...)
 	local res, err = loadstring(...)
 	if err and vape then
-		vape:CreateNotification('NYX', 'Failed to load : '..err, 30, 'alert')
+		vape:CreateNotification('AirJugglersV4', 'Failed to load : '..err, 30, 'alert')
 	end
 	return res
 end
@@ -14,11 +14,11 @@ end
 local function downloadFile(path, func)
 	if not isfile(path) or readfile(path) == '' then
 		local suc, res = pcall(function()
-			local commit = isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt')
+			local commit = isfile('AirJugglersV4/profiles/commit.txt') and readfile('AirJugglersV4/profiles/commit.txt')
 			if type(commit) ~= 'string' or commit == '' then
 				commit = 'main'
 			end
-			return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..commit..'/'..select(1, path:gsub('^NYX/', '')), true)
+			return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..commit..'/'..select(1, path:gsub('^AirJugglersV4/', '')), true)
 		end)
 		if not suc or type(res) ~= 'string' or res == '' or res == '404: Not Found' then
 			error(res)
@@ -37,8 +37,8 @@ local run = function(func)
 end
 local rawQueueTeleport = queue_on_teleport or queueonteleport or function() end
 local queue_on_teleport = function(snippet)
-	if shared.NYXQueueTeleport then
-		return shared.NYXQueueTeleport(snippet)
+	if shared.AirJugglersV4QueueTeleport then
+		return shared.AirJugglersV4QueueTeleport(snippet)
 	end
 	return rawQueueTeleport(snippet)
 end
@@ -85,7 +85,7 @@ local function addBlur(parent)
 	blur.Size = UDim2.new(1, 89, 1, 52)
 	blur.Position = UDim2.fromOffset(-48, -31)
 	blur.BackgroundTransparency = 1
-	blur.Image = getcustomasset('NYX/assets/new/blur.png')
+	blur.Image = getcustomasset('AirJugglersV4/assets/new/blur.png')
 	blur.ScaleType = Enum.ScaleType.Slice
 	blur.SliceCenter = Rect.new(52, 31, 261, 502)
 	blur.Parent = parent
@@ -165,7 +165,7 @@ local function serverHop(pointer, filter)
 		table.insert(visited, game.JobId)
 	end
 	if not pointer then
-		notif('NYX', 'Searching for an available server.', 2)
+		notif('AirJugglersV4', 'Searching for an available server.', 2)
 	end
 
 	local suc, httpdata = pcall(function()
@@ -178,7 +178,7 @@ local function serverHop(pointer, filter)
 				cacheExpire, cache = tick() + 60, httpdata
 				table.insert(attempted, v.id)
 
-				notif('NYX', 'Found! Teleporting.', 5)
+				notif('AirJugglersV4', 'Found! Teleporting.', 5)
 				teleportService:TeleportToPlaceInstance(game.PlaceId, v.id)
 				return
 			end
@@ -187,10 +187,10 @@ local function serverHop(pointer, filter)
 		if data.nextPageCursor then
 			serverHop(data.nextPageCursor, filter)
 		else
-			notif('NYX', 'Failed to find an available server.', 5, 'warning')
+			notif('AirJugglersV4', 'Failed to find an available server.', 5, 'warning')
 		end
 	else
-		notif('NYX', 'Failed to grab servers. ('..(data and data.errors[1].message or 'no data')..')', 5, 'warning')
+		notif('AirJugglersV4', 'Failed to grab servers. ('..(data and data.errors[1].message or 'no data')..')', 5, 'warning')
 	end
 end
 
@@ -232,9 +232,9 @@ local function motorMove(target, cf)
 	task.delay(0, part.Destroy, part)
 end
 
-local hash = loadstring(downloadFile('NYX/libraries/hash.lua'), 'hash')()
-local prediction = loadstring(downloadFile('NYX/libraries/prediction.lua'), 'prediction')()
-entitylib = loadstring(downloadFile('NYX/libraries/entity.lua'), 'entitylibrary')()
+local hash = loadstring(downloadFile('AirJugglersV4/libraries/hash.lua'), 'hash')()
+local prediction = loadstring(downloadFile('AirJugglersV4/libraries/prediction.lua'), 'prediction')()
+entitylib = loadstring(downloadFile('AirJugglersV4/libraries/entity.lua'), 'entitylibrary')()
 local whitelist = { get = function() return 0, true end, tag = function() return '' end, customtags = {}, isingame = function() return false end }
 vape.Libraries.entity = entitylib
 vape.Libraries.whitelist = whitelist
@@ -3328,7 +3328,7 @@ run(function()
 		arrow.BackgroundTransparency = 1
 		arrow.BorderSizePixel = 0
 		arrow.Visible = false
-		arrow.Image = getcustomasset('NYX/assets/new/arrowmodule.png')
+		arrow.Image = getcustomasset('AirJugglersV4/assets/new/arrowmodule.png')
 		arrow.ImageColor3 = entitylib.getEntityColor(ent) or Color3.fromHSV(Color.Hue, Color.Sat, Color.Value)
 		arrow.Parent = Folder
 		Reference[ent] = arrow
@@ -4909,7 +4909,7 @@ run(function()
 	
 	Radar = vape:CreateOverlay({
 		Name = 'Radar',
-		Icon = getcustomasset('NYX/assets/new/radaricon.png'),
+		Icon = getcustomasset('AirJugglersV4/assets/new/radaricon.png'),
 		Size = UDim2.fromOffset(14, 14),
 		Position = UDim2.fromOffset(12, 13),
 		Function = function(callback)
@@ -5129,7 +5129,7 @@ run(function()
 	
 	SessionInfo = vape:CreateOverlay({
 		Name = 'Session Info',
-		Icon = getcustomasset('NYX/assets/new/textguiicon.png'),
+		Icon = getcustomasset('AirJugglersV4/assets/new/textguiicon.png'),
 		Size = UDim2.fromOffset(16, 12),
 		Position = UDim2.fromOffset(12, 14),
 		Function = function(callback)
@@ -5198,8 +5198,8 @@ run(function()
 	Hide = SessionInfo:CreateTextList({
 		Name = 'Blacklist',
 		Tooltip = 'Name of entry to hide.',
-		Icon = getcustomasset('NYX/assets/new/blockedicon.png'),
-		Tab = getcustomasset('NYX/assets/new/blockedtab.png'),
+		Icon = getcustomasset('AirJugglersV4/assets/new/blockedicon.png'),
+		Tab = getcustomasset('AirJugglersV4/assets/new/blockedtab.png'),
 		TabSize = UDim2.fromOffset(21, 16),
 		Color = Color3.fromRGB(250, 50, 56)
 	})
@@ -7743,9 +7743,9 @@ run(function()
                     lightingService.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
                     lightingService.ExposureCompensation = 2
                     
-                    if not lightingService:FindFirstChild("NYXSun") then
+                    if not lightingService:FindFirstChild("AirJugglersV4Sun") then
                         local sun = Instance.new("SunRaysEffect")
-                        sun.Name = "NYXSun"
+                        sun.Name = "AirJugglersV4Sun"
                         sun.Intensity = 0.1
                         sun.Spread = 1
                         sun.Parent = lightingService
@@ -7756,7 +7756,7 @@ run(function()
                     lightingService.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
                     lightingService.ExposureCompensation = 1
                     
-                    local sun = lightingService:FindFirstChild("NYXSun")
+                    local sun = lightingService:FindFirstChild("AirJugglersV4Sun")
                     if sun then
                         sun:Destroy()
                     end

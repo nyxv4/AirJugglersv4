@@ -16,16 +16,16 @@ end
 
 local function downloadFile(path, func, forceRef)
 	local cached = (isfile(path) and readfile(path)) or ''
-	local ref = forceRef or (isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt')) or 'main'
+	local ref = forceRef or (isfile('AirJugglersV4/profiles/commit.txt') and readfile('AirJugglersV4/profiles/commit.txt')) or 'main'
 	if ref == '' then ref = 'main' end
 	local watermark = '--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.\n'
-	local cachePrefix = #ref == 40 and ref:match('^%x+$') and (watermark..'--NYXCOMMIT:'..ref..'\n') or nil
+	local cachePrefix = #ref == 40 and ref:match('^%x+$') and (watermark..'--AirJugglersV4COMMIT:'..ref..'\n') or nil
 	local current = cachePrefix and cached:sub(1, #cachePrefix) == cachePrefix
 	if cached == '' or (forceRef and not current) then
 		local res
 		for attempt = 1, 3 do
 			local suc, result = pcall(function()
-				return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..ref..'/'..select(1, path:gsub('^NYX/', '')), true)
+				return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..ref..'/'..select(1, path:gsub('^AirJugglersV4/', '')), true)
 			end)
 			if suc and type(result) == 'string' and #result > 0 and result ~= '404: Not Found' and not result:match('^%d%d%d:') and not result:match('^%s*<') then
 				res = result
@@ -58,22 +58,22 @@ local function wipeFolder(path)
 	end
 end
 
-for _, folder in {'NYX', 'NYX/games', 'NYX/profiles', 'NYX/assets', 'NYX/libraries', 'NYX/guis'} do
+for _, folder in {'AirJugglersV4', 'AirJugglersV4/games', 'AirJugglersV4/profiles', 'AirJugglersV4/assets', 'AirJugglersV4/libraries', 'AirJugglersV4/guis'} do
 	if not isfolder(folder) then makefolder(folder) end
 end
 
-if not isfile('NYX/profiles/commit.txt') then
-	writefile('NYX/profiles/commit.txt', 'main')
+if not isfile('AirJugglersV4/profiles/commit.txt') then
+	writefile('AirJugglersV4/profiles/commit.txt', 'main')
 end
 
 local function downloadPremadeProfiles(commit)
 	local httpService = game:GetService('HttpService')
-	if isfolder('NYX/profiles/premade') then
-		for _, file in listfiles('NYX/profiles/premade') do
+	if isfolder('AirJugglersV4/profiles/premade') then
+		for _, file in listfiles('AirJugglersV4/profiles/premade') do
 			pcall(function() if isfile(file) then delfile(file) end end)
 		end
 	else
-		makefolder('NYX/profiles/premade')
+		makefolder('AirJugglersV4/profiles/premade')
 	end
 	local success, response = pcall(function()
 		return game:HttpGet('https://api.github.com/repos/nyxv4/AirJugglersv4/contents/profiles/premade?ref=' .. commit)
@@ -88,7 +88,7 @@ local function downloadPremadeProfiles(commit)
 					local fileId = (game.GameId == 2619619496) and game.GameId or game.PlaceId
 					table.insert(targets, {
 						url = file.download_url,
-						path = 'NYX/profiles/premade/' .. baseName .. tostring(fileId) .. '.txt',
+						path = 'AirJugglersV4/profiles/premade/' .. baseName .. tostring(fileId) .. '.txt',
 					})
 				end
 			end
@@ -106,7 +106,7 @@ local function downloadPremadeProfiles(commit)
 				end)
 			end
 			while pending > 0 do task.wait() end
-			if complete then writefile('NYX/profiles/premade/commit.txt', commit) end
+			if complete then writefile('AirJugglersV4/profiles/premade/commit.txt', commit) end
 		end
 	end
 end
@@ -114,53 +114,53 @@ end
 local commit
 local forceRef = pinnedCommit or 'main'
 if not shared.VapeDeveloper then
-	local oldCommit = readfile('NYX/profiles/commit.txt')
+	local oldCommit = readfile('AirJugglersV4/profiles/commit.txt')
 	commit = pinnedCommit or oldCommit
 	if not pinnedCommit then
 		-- Use the last known commit so inject never blocks on the API; the
 		-- freshness check runs in the background for the next inject.
-		local latest = isfile('NYX/profiles/latest.txt') and readfile('NYX/profiles/latest.txt') or ''
+		local latest = isfile('AirJugglersV4/profiles/latest.txt') and readfile('AirJugglersV4/profiles/latest.txt') or ''
 		if #latest == 40 and latest:match('^%x+$') then
 			commit = latest
 		end
-		local lastCheck = tonumber(isfile('NYX/profiles/lastcheck.txt') and readfile('NYX/profiles/lastcheck.txt') or '') or 0
-		if unixTime() - lastCheck >= UPDATE_CHECK_INTERVAL and not shared.NYXUpdateCheckRunning then
-			shared.NYXUpdateCheckRunning = true
+		local lastCheck = tonumber(isfile('AirJugglersV4/profiles/lastcheck.txt') and readfile('AirJugglersV4/profiles/lastcheck.txt') or '') or 0
+		if unixTime() - lastCheck >= UPDATE_CHECK_INTERVAL and not shared.AirJugglersV4UpdateCheckRunning then
+			shared.AirJugglersV4UpdateCheckRunning = true
 			task.spawn(function()
 				local ok, res = pcall(function()
 					return game:HttpGet('https://api.github.com/repos/nyxv4/AirJugglersv4/commits/main', true)
 				end)
 				local h = ok and type(res) == 'string' and res:match('"sha"%s*:%s*"(%x+)"')
 				if h and #h == 40 then
-					pcall(writefile, 'NYX/profiles/latest.txt', h)
-					pcall(writefile, 'NYX/profiles/lastcheck.txt', tostring(unixTime()))
+					pcall(writefile, 'AirJugglersV4/profiles/latest.txt', h)
+					pcall(writefile, 'AirJugglersV4/profiles/lastcheck.txt', tostring(unixTime()))
 				end
-				shared.NYXUpdateCheckRunning = nil
+				shared.AirJugglersV4UpdateCheckRunning = nil
 			end)
 		end
 	end
 	forceRef = commit
 	if oldCommit ~= commit then
 		local pending = 0
-		for _, folder in {'NYX', 'NYX/games', 'NYX/guis', 'NYX/libraries'} do
+		for _, folder in {'AirJugglersV4', 'AirJugglersV4/games', 'AirJugglersV4/guis', 'AirJugglersV4/libraries'} do
 			pending = pending + 1
 			task.spawn(function()
 				pcall(wipeFolder, folder)
 				pending = pending - 1
 			end)
 		end
-		pcall(function() if isfile('NYX/guis/new.lua') then delfile('NYX/guis/new.lua') end end)
+		pcall(function() if isfile('AirJugglersV4/guis/new.lua') then delfile('AirJugglersV4/guis/new.lua') end end)
 		while pending > 0 do task.wait() end
 	end
-	writefile('NYX/profiles/commit.txt', commit)
-	local premadeCommit = isfile('NYX/profiles/premade/commit.txt') and readfile('NYX/profiles/premade/commit.txt') or ''
+	writefile('AirJugglersV4/profiles/commit.txt', commit)
+	local premadeCommit = isfile('AirJugglersV4/profiles/premade/commit.txt') and readfile('AirJugglersV4/profiles/premade/commit.txt') or ''
 	local needPremade = #commit ~= 40 or not commit:match('^%x+$') or oldCommit ~= commit or premadeCommit ~= commit
 	if needPremade then
 		task.spawn(function() pcall(downloadPremadeProfiles, commit) end)
 	end
 end
 
-return loadstring(downloadFile('NYX/main.lua', nil, forceRef), 'main')({
+return loadstring(downloadFile('AirJugglersV4/main.lua', nil, forceRef), 'main')({
 	Closet = _args.Closet,
 	Commit = forceRef,
 })

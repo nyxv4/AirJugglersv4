@@ -244,7 +244,7 @@ local function downloadFile(path, func)
 	if not isfile(path) then
 		createDownloader(path)
 		local suc, res = pcall(function()
-			return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..((isfile('newvape/profiles/commit.txt') and readfile('newvape/profiles/commit.txt')) or (isfile('NYX/profiles/commit.txt') and readfile('NYX/profiles/commit.txt')) or 'main')..'/'..select(1, path:gsub('newvape/', '')), true)
+			return game:HttpGet('https://raw.githubusercontent.com/nyxv4/AirJugglersv4/'..((isfile('newvape/profiles/commit.txt') and readfile('newvape/profiles/commit.txt')) or (isfile('AirJugglersV4/profiles/commit.txt') and readfile('AirJugglersV4/profiles/commit.txt')) or 'main')..'/'..select(1, path:gsub('newvape/', '')), true)
 		end)
 		if not suc or res == '404: Not Found' then
 			error(res)
@@ -2304,7 +2304,7 @@ function mainapi:Load(skipgui, profile)
 		guidata = loadJson('newvape/profiles/'..game.GameId..'.gui.txt')
 		if not guidata then
 			guidata = {Categories = {}}
-			self:CreateNotification('NYX', 'Failed to load GUI settings.', 10, 'alert')
+			self:CreateNotification('AirJugglersV4', 'Failed to load GUI settings.', 10, 'alert')
 			savecheck = false
 		end
 
@@ -2338,7 +2338,7 @@ function mainapi:Load(skipgui, profile)
 				Modules = {},
 				Legit = {}
 			}
-			self:CreateNotification('NYX', 'Failed to load '..self.Profile..' profile.', 10, 'alert')
+			self:CreateNotification('AirJugglersV4', 'Failed to load '..self.Profile..' profile.', 10, 'alert')
 			savecheck = false
 		end
 

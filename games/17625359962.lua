@@ -3,7 +3,7 @@
 local run = function(func)
 	local ok, err = pcall(func)
 	if not ok then
-		warn('[NYX] module failed: '..tostring(err))
+		warn('[AirJugglersV4] module failed: '..tostring(err))
 	end
 end
 local cloneref = cloneref or function(obj) return obj end
