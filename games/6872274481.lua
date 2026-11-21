@@ -7085,7 +7085,7 @@ run(function()
 		if now - _kaPingAt >= 0.5 then
 			_kaPingAt = now
 			local p = netPing()
-			_kaPingScale = 1 + math.clamp((p - 0.12) * 0.4, 0, 0.12)
+			_kaPingScale = 1 + math.clamp((p - 0.18) * 0.3, 0, 0.08)
 		end
 		return _kaPingScale
 	end
@@ -7156,7 +7156,7 @@ run(function()
 	end
 
 	local function quantize240(value)
-		return math.ceil(value / (1 / 240)) * (1 / 240)
+		return math.floor(value / (1 / 240) + 0.5) * (1 / 240)
 	end
 
 	local function updatePreciseClock()
@@ -8815,7 +8815,7 @@ run(function()
 				-- ServerTimeNow can step backwards on clock resyncs; without this the
 				-- schedule sits in the future and hits stall until real time catches up.
 				if kaLastSrv > srvNow + 0.25 then kaLastSrv = srvNow end
-				local target = kaPeriod - math.min(dt * 0.5, kaPeriod * 0.06)
+				local target = kaPeriod - math.min(math.max(dt * 0.5, 0.004), kaPeriod * 0.08)
 				if srvNow - kaLastSrv >= target then
 					-- Low FPS can leave several hit slots due in one frame. Pace each
 					-- extra send to its scheduled slot instead of bursting, so the
@@ -9718,7 +9718,7 @@ run(function()
 				if GrandLastSrv > srvNow + 0.25 then
 					GrandLastSrv = srvNow
 				end
-				local target = GrandFire.Period - math.min(dt * 0.5, GrandFire.Period * 0.06)
+				local target = GrandFire.Period - math.min(math.max(dt * 0.5, 0.004), GrandFire.Period * 0.08)
 				if srvNow - GrandLastSrv >= target then
 					-- Same paced catch-up as Killaura: extra due slots are sent on
 					-- their scheduled times instead of bursting in one frame.
