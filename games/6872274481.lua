@@ -7293,6 +7293,25 @@ run(function()
 		return meta and (meta.sword ~= nil or meta.tinkerChainsaw ~= nil or meta.tinkerMech ~= nil)
 	end
 
+	-- True when the held item is definitely not a melee weapon (blocks, bows,
+	-- utility items). Keeps sword swing visuals off while building/aiming.
+	local function handIsNonMelee()
+		local live = liveHandTool()
+		if live then return not isMeleeWeapon(live.Name) end
+		return store.hand ~= nil and store.hand.toolType == 'block'
+	end
+
+	-- True while a block/placeable is in hand. Building is deliberate, so the
+	-- aura stands down instead of fighting the player's own block placement.
+	local function handIsBlock()
+		local live = liveHandTool()
+		if live then
+			local meta = bedwars.ItemMeta and bedwars.ItemMeta[live.Name]
+			if meta then return meta.block == true end
+		end
+		return store.hand ~= nil and store.hand.toolType == 'block'
+	end
+
 	local function computeAttackData()
 		if not entitylib.isAlive then return false end
 
@@ -8645,6 +8664,7 @@ run(function()
 		-- A sword hit while a bow/other projectile is in hand cancels the shot; the player
 		-- picked that item on purpose, so the aura stands down until they switch back.
 		if handIsProjectile() and tick() - (store.lastToolUpdate or 0) > 0.5 then return false end
+		if handIsBlock() then return false end
 		if fhBusy and (workspace:GetServerTimeNow() - (store._fhBusySince or 0)) < 0.10 then return false end
 
 		-- A sword hit sent right behind a bolt would cancel it; the bow stays raised until the
@@ -8713,7 +8733,7 @@ run(function()
 
 		-- Cosmetic swing runs slower than the hits on purpose; sends are untouched.
 		local swingInterval = store.auraSwingInterval or AURA_SWING_INTERVAL
-		if not store.noAuraSwing and tick() - lastSwingAnim >= swingInterval and tick() >= auraSwingUntil then
+		if not store.noAuraSwing and not handIsNonMelee() and tick() - lastSwingAnim >= swingInterval and tick() >= auraSwingUntil then
 			playAuraSwing(meta, sword)
 			lastSwingAnim = tick()
 			lastAnimTime = lastSwingAnim
@@ -9024,7 +9044,7 @@ run(function()
 						local isLegitAura = LegitAura and LegitAura.Enabled
 
 						if shouldSwing or isLegitAura then
-							if not liveProj and not fhBusy and not regentBusy and store.hand and store.hand.tool ~= sword.tool and (tick() - (store._kaSwitch or 0)) > 0.25 then
+							if not liveProj and not fhBusy and not regentBusy and store.hand and store.hand.toolType ~= 'block' and store.hand.tool ~= sword.tool and (tick() - (store._kaSwitch or 0)) > 0.25 then
 								store._kaSwitch = tick()
 								switchItem(sword.tool, 0)
 							end
@@ -9843,7 +9863,7 @@ run(function()
 							store.GrandKillauraTarget = chosen
 
 							if hasValidSwing then
-								if not fhBusy and not regentBusy and store.hand and store.hand.tool ~= sword.tool and not liveProj and (tick() - (store._kaSwitch or 0)) > 0.25 and tick() >= GrandFire.ItemUntil then
+								if not fhBusy and not regentBusy and store.hand and store.hand.toolType ~= 'block' and store.hand.tool ~= sword.tool and not liveProj and (tick() - (store._kaSwitch or 0)) > 0.25 and tick() >= GrandFire.ItemUntil then
 									store._kaSwitch = tick()
 									switchItem(sword.tool, 0)
 								end
@@ -11212,7 +11232,7 @@ run(function()
 									if not store.attacking then
 										store.attacking = true
 										store.KillauraTarget = v
-										if not Swing.Enabled and AnimDelay < tick() and not LegitAura.Enabled then
+										if not Swing.Enabled and AnimDelay < tick() and not LegitAura.Enabled and not handIsNonMelee() then
 											local SwingDelay: number = math.max(SwingTime:GetRandomValue(), 0.35)
 											AnimDelay = tick() + SwingDelay
 											Swung = true
@@ -11460,7 +11480,7 @@ run(function()
 	
 						if #Attacked > 0 then
 							ContinueUntil = tick() + (ContinueSwing:GetRandomValue() / 1000)
-						elseif Sword and SwordMeta and tick() < ContinueUntil and AnimDelay < tick() and not Swing.Enabled and not LegitAura.Enabled then
+						elseif Sword and SwordMeta and tick() < ContinueUntil and AnimDelay < tick() and not Swing.Enabled and not LegitAura.Enabled and not handIsNonMelee() then
 							local SwingDelay: number = math.max(SwingTime:GetRandomValue(), 0.35)
 							AnimDelay = tick() + SwingDelay
 							local Mount: Model? = getTinkerMount()
